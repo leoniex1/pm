@@ -3,9 +3,18 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
+
+from backend.app.board_store import (
+    BoardData,
+    SessionLocal,
+    get_board,
+    init_database,
+    reset_database,
+    save_board,
+)
 
 app = FastAPI(title="PM MVP Backend")
 
@@ -23,6 +32,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+init_database()
 
 _STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 _STATIC_INDEX = _STATIC_DIR / "index.html"
@@ -118,6 +129,29 @@ def session_status(request: Request) -> dict[str, str | bool | None]:
     authenticated = _is_authenticated(request)
     username = request.session.get("username") if authenticated else None
     return {"authenticated": authenticated, "username": username}
+
+
+@app.get("/api/board")
+def read_board(request: Request) -> BoardData:
+    _require_authenticated(request)
+    with SessionLocal() as session:
+        return get_board(session)
+
+
+@app.put("/api/board")
+def update_board(payload: BoardData, request: Request) -> BoardData:
+    _require_authenticated(request)
+    with SessionLocal() as session:
+        return save_board(session, payload)
+
+
+@app.post("/api/board/reset")
+def reset_board(request: Request) -> dict[str, bool]:
+    _require_authenticated(request)
+    if os.getenv("ALLOW_TEST_RESET", "0") != "1":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    reset_database()
+    return {"ok": True}
 
 
 @app.get("/", response_class=Response)

@@ -102,72 +102,78 @@ This plan covers Parts 1-10 with concrete checklists, critical-path tests, and s
 
 ## Part 5: Database model and sign-off
 
+Reconciliation note: database persistence implementation was completed early before explicit Part 5 sign-off. Items below reflect verified current state.
+
 ### Checklist
 
-- [ ] Author schema proposal in docs for normalized SQLite tables:
-- [ ] `users`
-- [ ] `boards`
-- [ ] `columns`
-- [ ] `cards`
-- [ ] `card_positions` (or equivalent deterministic ordering table/fields)
-- [ ] Define foreign keys, uniqueness constraints, and delete/update behavior.
-- [ ] Define migration/bootstrap strategy that creates DB if missing.
-- [ ] Define JSON payload contract for board read/write API.
+- [x] Author schema proposal in docs for normalized SQLite tables:
+- [x] `users`
+- [x] `boards`
+- [x] `columns`
+- [x] `cards`
+- [x] `card_positions` (or equivalent deterministic ordering table/fields)
+- [x] Define foreign keys, uniqueness constraints, and delete/update behavior.
+- [x] Define migration/bootstrap strategy that creates DB if missing.
+- [x] Define JSON payload contract for board read/write API.
 - [ ] Request explicit user approval before implementing schema in code.
 
 ### Tests
 
-- [ ] Validate schema with sample data insert/select/update/delete script.
-- [ ] Validate board reconstruction query returns correct ordered columns/cards.
+- [x] Validate schema with sample data insert/select/update/delete script.
+- [x] Validate board reconstruction query returns correct ordered columns/cards.
 
 ### Success criteria
 
 - [ ] Schema doc is clear, normalized, and approved.
-- [ ] Ordering strategy is deterministic and testable.
+- [x] Ordering strategy is deterministic and testable.
 
 ## Part 6: Backend board API and persistence
 
+Reconciliation note: some Part 6 implementation and tests were completed early during Part 5 execution.
+
 ### Checklist
 
-- [ ] Implement SQLite initialization on startup if DB file does not exist.
-- [ ] Implement repository/data-access layer for board entities.
-- [ ] Implement authenticated board APIs (read and update operations).
+- [x] Implement SQLite initialization on startup if DB file does not exist.
+- [x] Implement repository/data-access layer for board entities.
+- [x] Implement authenticated board APIs (read and update operations).
 - [ ] Add validation for payload shape and ownership checks.
 - [ ] Add error handling for invalid board/card/column operations.
 
 ### Tests
 
-- [ ] Unit tests for data-access methods (create/read/update ordering moves).
-- [ ] API tests for auth-required routes.
-- [ ] API tests for successful board retrieval and updates.
-- [ ] API tests for invalid payloads and unauthorized access.
+- [x] Unit tests for data-access methods (create/read/update ordering moves).
+- [x] API tests for auth-required routes.
+- [x] API tests for successful board retrieval and updates.
+- [x] API tests for invalid payloads and unauthorized access.
 
 ### Success criteria
 
 - [ ] Backend can persist and return board state per user reliably.
-- [ ] DB auto-creation path works on first run.
+- [x] DB auto-creation path works on first run.
 
 ## Part 7: Frontend-backend integration for persistent Kanban
 
+Reconciliation note: core Part 7 integration was completed early during Part 5 execution.
+
 ### Checklist
 
-- [ ] Replace in-memory-only initialization with backend board fetch.
-- [ ] Wire rename/add/delete/move operations to backend APIs.
+- [x] Replace in-memory-only initialization with backend board fetch.
+- [x] Wire rename/add/delete/move operations to backend APIs.
 - [ ] Add optimistic or controlled update strategy with rollback/error UX.
-- [ ] Ensure session-aware API calls include credentials.
-- [ ] Keep existing UX quality and responsiveness.
+- [x] Ensure session-aware API calls include credentials.
+- [x] Keep existing UX quality and responsiveness.
 
 ### Tests
 
-- [ ] Integration tests for initial board load from backend.
-- [ ] Integration tests for rename/add/delete/move persistence.
-- [ ] Reload test: board state persists across refresh and login session.
-- [ ] Regression test for drag/drop ordering behavior.
+- [x] Integration tests for initial board load from backend.
+- [x] Integration tests for rename/add/delete/move persistence.
+- [x] Reload test: board state persists across refresh and login session.
+- [x] Regression test for drag/drop ordering behavior.
 
 ### Success criteria
 
-- [ ] Board interactions persist to SQLite and survive refresh.
-- [ ] Frontend and backend are fully connected for core Kanban workflow.
+- [x] Board interactions persist to SQLite and survive refresh.
+- [x] Frontend and backend are fully connected for core Kanban workflow.
 
 ## Part 8: OpenRouter connectivity
 
