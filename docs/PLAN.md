@@ -198,29 +198,31 @@ Reconciliation note: core Part 7 integration was completed early during Part 5 e
 
 ## Part 9: Structured outputs for AI-assisted board updates (approval gate first)
 
+Reconciliation note: structured-output schema approved and backend parser/atomic mutation path implemented.
+
 ### Checklist
 
-- [ ] Draft and document exact structured output schema in docs before coding.
-- [ ] Include response text, optional board update operations, and validation rules.
-- [ ] Request explicit user approval of schema.
-- [ ] After approval, implement backend prompt assembly with:
-- [ ] current board JSON
-- [ ] user message
-- [ ] conversation history
-- [ ] Implement strict parsing/validation and safe application of allowed operations.
-- [ ] Persist applied updates and return both assistant response and resulting board diff/state.
+- [x] Draft and document exact structured output schema in docs before coding.
+- [x] Include response text, optional board update operations, and validation rules.
+- [x] Request explicit user approval of schema.
+- [x] After approval, implement backend prompt assembly with:
+- [x] current board JSON
+- [x] user message
+- [x] conversation history
+- [x] Implement strict parsing/validation and safe application of allowed operations.
+- [x] Persist applied updates and return both assistant response and resulting board diff/state.
 
 ### Tests
 
-- [ ] Schema validation tests for valid and invalid model outputs.
-- [ ] Integration tests for no-op response (chat only).
-- [ ] Integration tests for valid board mutation response.
-- [ ] Failure-path tests for malformed/unsafe operations.
+- [x] Schema validation tests for valid and invalid model outputs.
+- [x] Integration tests for no-op response (chat only).
+- [x] Integration tests for valid board mutation response.
+- [x] Failure-path tests for malformed/unsafe operations.
 
 ### Success criteria
 
-- [ ] Structured output contract is documented, approved, and enforced.
-- [ ] AI responses can safely and deterministically update the board when requested.
+- [x] Structured output contract is documented, approved, and enforced.
+- [x] AI responses can safely and deterministically update the board when requested.
 
 ## Part 10: Frontend AI sidebar and auto-refresh board updates
 

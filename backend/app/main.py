@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
 from backend.app.board_store import (
@@ -21,6 +21,13 @@ from backend.app.openrouter_service import (
     OpenRouterConfigurationError,
     OpenRouterRequestError,
     query_openrouter,
+)
+from backend.app.structured_output import (
+    ConversationTurn,
+    StructuredOutputError,
+    build_structured_prompt,
+    parse_structured_response,
+    validate_and_apply_operations,
 )
 
 app = FastAPI(title="PM MVP Backend")
@@ -60,6 +67,11 @@ class LoginRequest(BaseModel):
 
 class ConnectivityRequest(BaseModel):
     prompt: str = "What is 2 + 2?"
+
+
+class AIKanbanRequest(BaseModel):
+    message: str
+    history: list[ConversationTurn] = Field(default_factory=list)
 
 
 def _is_authenticated(request: Request) -> bool:
@@ -209,6 +221,46 @@ def openrouter_connectivity(payload: ConnectivityRequest, request: Request) -> d
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return {"model": reply.model, "response": reply.text}
+
+
+@app.post("/api/ai/respond")
+def ai_kanban_respond(payload: AIKanbanRequest, request: Request) -> dict[str, object]:
+    _require_authenticated(request)
+    user_id = _require_session_user_id(request)
+
+    with SessionLocal() as session:
+        current_board = get_board(session, user_id)
+
+    prompt = build_structured_prompt(
+        board=current_board,
+        user_message=payload.message,
+        history=payload.history,
+    )
+
+    try:
+        reply = query_openrouter(prompt)
+        structured = parse_structured_response(reply.text)
+        next_board = validate_and_apply_operations(current_board, structured.operations)
+    except OpenRouterConfigurationError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except OpenRouterRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except StructuredOutputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    with SessionLocal() as session:
+        try:
+            with session.begin():
+                persisted_board = save_board(session, user_id, next_board, commit=False)
+        except Exception as exc:
+            session.rollback()
+            raise HTTPException(status_code=500, detail="Failed to apply operations atomically") from exc
+
+    return {
+        "assistant_message": structured.assistant_message,
+        "operations": [operation.model_dump(mode="json") for operation in structured.operations],
+        "board": persisted_board.model_dump(mode="json"),
+    }
 
 
 @app.get("/", response_class=Response)

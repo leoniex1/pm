@@ -323,7 +323,7 @@ def get_board(session: Session, user_id: int) -> BoardData:
     return BoardData(columns=result_columns, cards=cards_by_id)
 
 
-def save_board(session: Session, user_id: int, board_data: BoardData) -> BoardData:
+def save_board(session: Session, user_id: int, board_data: BoardData, commit: bool = True) -> BoardData:
     board = _ensure_board_for_user(session, user_id)
 
     session.query(Card).filter(
@@ -357,5 +357,8 @@ def save_board(session: Session, user_id: int, board_data: BoardData) -> BoardDa
             )
             session.add(card)
 
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return get_board(session, user_id)

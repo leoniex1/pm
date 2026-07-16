@@ -25,6 +25,7 @@ This folder contains the FastAPI backend used for the PM MVP single-container de
 - `GET /api/board` returns persisted ordered board JSON.
 - `PUT /api/board` persists ordered board JSON.
 - `POST /api/ai/connectivity` sends a simple prompt to OpenRouter and returns model + response text.
+- `POST /api/ai/respond` sends board-aware prompt context to OpenRouter, validates structured output, and applies allowed operations atomically.
 - `GET /{path}` serves static frontend files with index fallback for app routes.
 
 ## Auth mapping
@@ -38,6 +39,11 @@ This folder contains the FastAPI backend used for the PM MVP single-container de
 - `OPENROUTER_API_KEY` is required.
 - `OPENROUTER_MODEL` is optional and defaults to `openai/gpt-oss-120b`.
 - Runtime config is resolved from environment variables and falls back to project-root `.env` for local development.
+
+## Part 9 approval gate
+
+- Structured output contract proposal is documented in `docs/AI_STRUCTURED_OUTPUT_SCHEMA.md`.
+- Operations must include unique `id` fields for auditing/debugging.
 
 ## Test-only behavior
 
