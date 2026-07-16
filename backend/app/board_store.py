@@ -157,7 +157,15 @@ def _database_url() -> str:
     if explicit_url:
         return explicit_url
 
-    db_path = Path(os.getenv("DATABASE_PATH", "backend/data/kanban.db"))
+    backend_root = Path(__file__).resolve().parents[1]
+    configured_path = os.getenv("DATABASE_PATH")
+    if configured_path:
+        db_path = Path(configured_path)
+        if not db_path.is_absolute():
+            db_path = (backend_root / db_path).resolve()
+    else:
+        db_path = backend_root / "data" / "kanban.db"
+
     db_path.parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{db_path}"
 

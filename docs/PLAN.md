@@ -179,22 +179,22 @@ Reconciliation note: core Part 7 integration was completed early during Part 5 e
 
 ### Checklist
 
-- [ ] Add backend OpenRouter client with env-based config:
-- [ ] `OPENROUTER_API_KEY` required.
-- [ ] `OPENROUTER_MODEL` optional, default `openai/gpt-oss-120b`.
-- [ ] Add basic service method and endpoint for connectivity check.
-- [ ] Implement simple prompt test (`2+2`) pathway.
+- [x] Add backend OpenRouter client with env-based config:
+- [x] `OPENROUTER_API_KEY` required.
+- [x] `OPENROUTER_MODEL` optional, default `openai/gpt-oss-120b`.
+- [x] Add basic service method and endpoint for connectivity check.
+- [x] Implement simple prompt test (`2+2`) pathway.
 
 ### Tests
 
-- [ ] Unit test for config resolution and default model behavior.
-- [ ] Integration test with mocked OpenRouter response.
-- [ ] Manual connectivity test with real API key verifies non-error response.
+- [x] Unit test for config resolution and default model behavior.
+- [x] Integration test with mocked OpenRouter response.
+- [x] Manual connectivity test with real API key verifies non-error response.
 
 ### Success criteria
 
-- [ ] Backend can successfully call OpenRouter in configured environments.
-- [ ] Model selection is environment-configurable with correct default.
+- [x] Backend can successfully call OpenRouter in configured environments.
+- [x] Model selection is environment-configurable with correct default.
 
 ## Part 9: Structured outputs for AI-assisted board updates (approval gate first)
 

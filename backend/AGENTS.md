@@ -24,12 +24,20 @@ This folder contains the FastAPI backend used for the PM MVP single-container de
 - `GET /api/health` returns backend health JSON.
 - `GET /api/board` returns persisted ordered board JSON.
 - `PUT /api/board` persists ordered board JSON.
+- `POST /api/ai/connectivity` sends a simple prompt to OpenRouter and returns model + response text.
 - `GET /{path}` serves static frontend files with index fallback for app routes.
 
 ## Auth mapping
 
 - Login credentials are validated against `users` in SQLite.
 - Session stores `user_id`, and board API calls are scoped to that owner.
+- AI connectivity endpoint requires an authenticated session.
+
+## OpenRouter config
+
+- `OPENROUTER_API_KEY` is required.
+- `OPENROUTER_MODEL` is optional and defaults to `openai/gpt-oss-120b`.
+- Runtime config is resolved from environment variables and falls back to project-root `.env` for local development.
 
 ## Test-only behavior
 

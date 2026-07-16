@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $image = "pm-mvp"
 $container = "pm-mvp"
 $dataDir = Join-Path (Get-Location) "backend/data"
+$envFile = Join-Path (Get-Location) ".env"
 
 New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
 
@@ -16,6 +17,11 @@ if ($existingContainer -eq $container) {
 }
 
 Write-Host "Starting container: $container"
-docker run -d --name $container -p 8000:8000 -v "${dataDir}:/app/backend/data" $image | Out-Host
+if (Test-Path $envFile) {
+	docker run -d --name $container -p 8000:8000 -v "${dataDir}:/app/backend/data" --env-file $envFile $image | Out-Host
+} else {
+	Write-Host "Warning: .env file not found at project root; running without --env-file"
+	docker run -d --name $container -p 8000:8000 -v "${dataDir}:/app/backend/data" $image | Out-Host
+}
 
 Write-Host "App should be available at http://localhost:8000"

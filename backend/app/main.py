@@ -17,6 +17,11 @@ from backend.app.board_store import (
     reset_database,
     save_board,
 )
+from backend.app.openrouter_service import (
+    OpenRouterConfigurationError,
+    OpenRouterRequestError,
+    query_openrouter,
+)
 
 app = FastAPI(title="PM MVP Backend")
 
@@ -51,6 +56,10 @@ _FRONTEND_PUBLIC_PATHS = {
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class ConnectivityRequest(BaseModel):
+    prompt: str = "What is 2 + 2?"
 
 
 def _is_authenticated(request: Request) -> bool:
@@ -185,6 +194,21 @@ def reset_board(request: Request) -> dict[str, bool]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     reset_database()
     return {"ok": True}
+
+
+@app.post("/api/ai/connectivity")
+def openrouter_connectivity(payload: ConnectivityRequest, request: Request) -> dict[str, str]:
+    _require_authenticated(request)
+
+    prompt = payload.prompt.strip() or "What is 2 + 2?"
+    try:
+        reply = query_openrouter(prompt)
+    except OpenRouterConfigurationError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except OpenRouterRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"model": reply.model, "response": reply.text}
 
 
 @app.get("/", response_class=Response)
