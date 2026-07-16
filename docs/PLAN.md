@@ -1,37 +1,253 @@
-# High level steps for project
+# Project execution plan
 
-Part 1: Plan
+This plan covers Parts 1-10 with concrete checklists, critical-path tests, and success criteria. Implementation starts only after explicit approval of this plan.
 
-Enrich this document to plan out each of these parts in detail, with substeps listed out as a checklist to be checked off by the agent, and with tests and success critieria for each. Also create an AGENTS.md file inside the frontend directory that describes the existing code there. Ensure the user checks and approves the plan.
+## Decisions locked in
 
-Part 2: Scaffolding
+- [x] Single-container Docker MVP: FastAPI serves backend API and statically built Next.js frontend.
+- [x] Auth is backend-managed cookie/session with hardcoded credentials `user` / `password`.
+- [x] SQLite uses normalized relational schema for users, boards, columns, cards, and ordering.
+- [x] JSON is used for docs, API payloads, structured AI I/O, and optional snapshots (not whole-board DB blob).
+- [x] OpenRouter model is environment-configurable via `OPENROUTER_MODEL`, default `openai/gpt-oss-120b`.
+- [x] Structured output schema must be proposed and approved before Part 9 implementation.
+- [x] Testing focus is critical-path unit/integration/e2e without coverage percentage target.
 
-Set up the Docker infrastructure, the backend in backend/ with FastAPI, and write the start and stop scripts in the scripts/ directory. This should serve example static HTML to confirm that a 'hello world' example works running locally and also make an API call.
+## Part 1: Plan and frontend inspection
 
-Part 3: Add in Frontend
+### Checklist
 
-Now update so that the frontend is statically built and served, so that the app has the demo Kanban board displayed at /. Comprehensive unit and integration tests.
+- [x] Inspect existing frontend architecture, components, and tests.
+- [x] Create `frontend/AGENTS.md` concise reference for architecture, commands, conventions, and constraints.
+- [x] Rewrite `docs/PLAN.md` as a detailed checklist plan with tests and success criteria per part.
+- [x] Request user approval before starting Part 2.
 
-Part 4: Add in a fake user sign in experience
+### Tests
 
-Now update so that on first hitting /, you need to log in with dummy credentials ("user", "password") in order to see the Kanban, and you can log out. Comprehensive tests.
+- [x] Verify that referenced frontend commands exist in `frontend/package.json`.
+- [x] Verify `frontend/AGENTS.md` content matches actual source structure.
+- [x] Manual review: ensure every part includes substeps, tests, and success criteria.
 
-Part 5: Database modeling
+### Success criteria
 
-Now propose a database schema for the Kanban, saving it as JSON. Document the database approach in docs/ and get user sign off.
+- [x] `frontend/AGENTS.md` exists and is accurate/practical.
+- [x] `docs/PLAN.md` is detailed and approval-ready.
+- [x] No code implementation beyond planning/docs is started.
 
-Part 6: Backend
+## Part 2: Scaffolding (backend + single container hello world)
 
-Now add API routes to allow the backend to read and change the Kanban for a given user; test this thoroughly with backend unit tests. The database should be created if it doesn't exist.
+### Checklist
 
-Part 7: Frontend + Backend
+- [x] Initialize backend project in `backend/` using FastAPI and `uv` workflow.
+- [x] Add backend entrypoint and basic health/API route.
+- [x] Add Dockerfile for one-container build/runtime.
+- [x] Add scripts in `scripts/` for start/stop on Mac, Linux, and Windows.
+- [x] Serve simple static HTML at `/` from FastAPI to prove container plumbing.
 
-Now have the frontend actually use the backend API, so that the app is a proper persistent Kanban board. Test very throughly.
+### Tests
 
-Part 8: AI connectivity
+- [x] Build Docker image successfully.
+- [x] Run container and verify `/` returns hello page.
+- [x] Verify API endpoint (for example `/api/health`) returns expected JSON.
+- [x] Verify start/stop scripts work on their target OS shell conventions.
 
-Now allow the backend to make an AI call via OpenRouter. Test connectivity with a simple "2+2" test and ensure the AI call is working.
+### Success criteria
 
-Part 9: Now extend the backend call so that it always calls the AI with the JSON of the Kanban board, plus the user's question (and conversation history). The AI should respond with Structured Outputs that includes the response to the user and optionaly an update to the Kanban. Test thoroughly.
+- [x] One command path starts local container successfully.
+- [x] FastAPI serves both static response at `/` and API response under `/api/*`.
+- [x] Documentation for how to run is minimal and correct.
 
-Part 10: Now add a beautiful sidebar widget to the UI supporting full AI chat, and allowing the LLM (as it determines) to update the Kanban based on its Structured Outputs. If the AI updates the Kanban, then the UI should refresh automatically.
+## Part 3: Serve built frontend from FastAPI
+
+### Checklist
+
+- [x] Build Next.js frontend to static assets as part of Docker build flow.
+- [x] Configure FastAPI static file serving for built frontend.
+- [x] Route `/` to the Kanban demo.
+- [x] Ensure fallback behavior supports frontend routing requirements for MVP.
+
+### Tests
+
+- [x] Containerized app at `/` shows existing Kanban UI.
+- [x] Existing frontend unit tests pass.
+- [x] Integration test verifies static assets are served correctly.
+
+### Success criteria
+
+- [x] Demo Kanban renders from containerized app root.
+- [x] No regression to current rename/add/delete/drag interactions.
+
+## Part 4: Dummy sign-in/sign-out with backend session
+
+### Checklist
+
+- [x] Add backend session management using secure cookie-based session.
+- [x] Implement login endpoint validating `user` / `password`.
+- [x] Implement logout endpoint clearing session.
+- [x] Protect board/API endpoints behind authenticated session.
+- [x] Add frontend login screen and auth-aware routing/state.
+
+### Tests
+
+- [x] Backend test: successful login sets session cookie.
+- [x] Backend test: invalid credentials rejected.
+- [x] Backend test: logout clears session.
+- [x] Integration/e2e: unauthenticated user redirected/shown login.
+- [x] Integration/e2e: authenticated user reaches Kanban and can logout.
+
+### Success criteria
+
+- [x] User cannot access board without login.
+- [x] Valid login and logout flows work end to end.
+- [x] No localStorage-only auth guard is used for core auth state.
+
+## Part 5: Database model and sign-off
+
+### Checklist
+
+- [ ] Author schema proposal in docs for normalized SQLite tables:
+- [ ] `users`
+- [ ] `boards`
+- [ ] `columns`
+- [ ] `cards`
+- [ ] `card_positions` (or equivalent deterministic ordering table/fields)
+- [ ] Define foreign keys, uniqueness constraints, and delete/update behavior.
+- [ ] Define migration/bootstrap strategy that creates DB if missing.
+- [ ] Define JSON payload contract for board read/write API.
+- [ ] Request explicit user approval before implementing schema in code.
+
+### Tests
+
+- [ ] Validate schema with sample data insert/select/update/delete script.
+- [ ] Validate board reconstruction query returns correct ordered columns/cards.
+
+### Success criteria
+
+- [ ] Schema doc is clear, normalized, and approved.
+- [ ] Ordering strategy is deterministic and testable.
+
+## Part 6: Backend board API and persistence
+
+### Checklist
+
+- [ ] Implement SQLite initialization on startup if DB file does not exist.
+- [ ] Implement repository/data-access layer for board entities.
+- [ ] Implement authenticated board APIs (read and update operations).
+- [ ] Add validation for payload shape and ownership checks.
+- [ ] Add error handling for invalid board/card/column operations.
+
+### Tests
+
+- [ ] Unit tests for data-access methods (create/read/update ordering moves).
+- [ ] API tests for auth-required routes.
+- [ ] API tests for successful board retrieval and updates.
+- [ ] API tests for invalid payloads and unauthorized access.
+
+### Success criteria
+
+- [ ] Backend can persist and return board state per user reliably.
+- [ ] DB auto-creation path works on first run.
+
+## Part 7: Frontend-backend integration for persistent Kanban
+
+### Checklist
+
+- [ ] Replace in-memory-only initialization with backend board fetch.
+- [ ] Wire rename/add/delete/move operations to backend APIs.
+- [ ] Add optimistic or controlled update strategy with rollback/error UX.
+- [ ] Ensure session-aware API calls include credentials.
+- [ ] Keep existing UX quality and responsiveness.
+
+### Tests
+
+- [ ] Integration tests for initial board load from backend.
+- [ ] Integration tests for rename/add/delete/move persistence.
+- [ ] Reload test: board state persists across refresh and login session.
+- [ ] Regression test for drag/drop ordering behavior.
+
+### Success criteria
+
+- [ ] Board interactions persist to SQLite and survive refresh.
+- [ ] Frontend and backend are fully connected for core Kanban workflow.
+
+## Part 8: OpenRouter connectivity
+
+### Checklist
+
+- [ ] Add backend OpenRouter client with env-based config:
+- [ ] `OPENROUTER_API_KEY` required.
+- [ ] `OPENROUTER_MODEL` optional, default `openai/gpt-oss-120b`.
+- [ ] Add basic service method and endpoint for connectivity check.
+- [ ] Implement simple prompt test (`2+2`) pathway.
+
+### Tests
+
+- [ ] Unit test for config resolution and default model behavior.
+- [ ] Integration test with mocked OpenRouter response.
+- [ ] Manual connectivity test with real API key verifies non-error response.
+
+### Success criteria
+
+- [ ] Backend can successfully call OpenRouter in configured environments.
+- [ ] Model selection is environment-configurable with correct default.
+
+## Part 9: Structured outputs for AI-assisted board updates (approval gate first)
+
+### Checklist
+
+- [ ] Draft and document exact structured output schema in docs before coding.
+- [ ] Include response text, optional board update operations, and validation rules.
+- [ ] Request explicit user approval of schema.
+- [ ] After approval, implement backend prompt assembly with:
+- [ ] current board JSON
+- [ ] user message
+- [ ] conversation history
+- [ ] Implement strict parsing/validation and safe application of allowed operations.
+- [ ] Persist applied updates and return both assistant response and resulting board diff/state.
+
+### Tests
+
+- [ ] Schema validation tests for valid and invalid model outputs.
+- [ ] Integration tests for no-op response (chat only).
+- [ ] Integration tests for valid board mutation response.
+- [ ] Failure-path tests for malformed/unsafe operations.
+
+### Success criteria
+
+- [ ] Structured output contract is documented, approved, and enforced.
+- [ ] AI responses can safely and deterministically update the board when requested.
+
+## Part 10: Frontend AI sidebar and auto-refresh board updates
+
+### Checklist
+
+- [ ] Add sidebar chat UI integrated with backend AI endpoint.
+- [ ] Show conversation history and loading/error states.
+- [ ] Apply returned board updates to UI state automatically.
+- [ ] Ensure visual integration fits existing design language.
+- [ ] Keep Kanban interactions and AI interactions coherent under concurrent updates.
+
+### Tests
+
+- [ ] Component tests for sidebar send/render states.
+- [ ] Integration tests for AI chat request/response cycle.
+- [ ] Integration tests verifying AI-triggered board changes render immediately.
+- [ ] Regression tests for manual board edits after AI updates.
+
+### Success criteria
+
+- [ ] Sidebar chat works end to end.
+- [ ] Board refreshes automatically when AI returns updates.
+- [ ] Existing Kanban behavior remains stable.
+
+## Cross-cutting quality gates
+
+- [ ] Keep implementation simple and avoid unnecessary abstractions.
+- [ ] Maintain concise docs; update only what is needed.
+- [ ] Add tests only for critical paths and behavior changes.
+- [ ] Confirm root cause for defects before applying fixes.
+- [ ] Preserve project color palette and overall UI consistency.
+
+## Execution control
+
+- [ ] Stop after Part 1 deliverables and wait for user approval.
+- [ ] Do not start Part 2+ until explicit approval is received.
