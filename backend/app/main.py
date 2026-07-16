@@ -10,6 +10,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from backend.app.board_store import (
     BoardData,
     SessionLocal,
+    authenticate_user,
+    get_user_by_id,
     get_board,
     init_database,
     reset_database,
@@ -60,6 +62,13 @@ def _require_authenticated(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
 
+def _require_session_user_id(request: Request) -> int:
+    user_id = request.session.get("user_id")
+    if not isinstance(user_id, int):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    return user_id
+
+
 def _resolve_static_file(path: str) -> Path:
     requested_path = path.strip("/")
     candidate = (_STATIC_DIR / requested_path).resolve()
@@ -106,15 +115,22 @@ def _is_public_frontend_path(path: str) -> bool:
 
 @app.post("/api/auth/login")
 def login(payload: LoginRequest, request: Request) -> dict[str, str | bool]:
-    if payload.username != "user" or payload.password != "password":
+    with SessionLocal() as session:
+        user = authenticate_user(session, payload.username, payload.password)
+        if user is not None:
+            user_id = user.id
+            username = user.username
+
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
 
     request.session["authenticated"] = True
-    request.session["username"] = payload.username
-    return {"authenticated": True, "username": payload.username}
+    request.session["username"] = username
+    request.session["user_id"] = user_id
+    return {"authenticated": True, "username": username}
 
 
 @app.post("/api/auth/logout")
@@ -127,22 +143,39 @@ def logout(request: Request) -> dict[str, bool]:
 @app.get("/api/auth/session")
 def session_status(request: Request) -> dict[str, str | bool | None]:
     authenticated = _is_authenticated(request)
-    username = request.session.get("username") if authenticated else None
-    return {"authenticated": authenticated, "username": username}
+    if not authenticated:
+        return {"authenticated": False, "username": None}
+
+    user_id = request.session.get("user_id")
+    if not isinstance(user_id, int):
+        request.session.clear()
+        return {"authenticated": False, "username": None}
+
+    with SessionLocal() as session:
+        user = get_user_by_id(session, user_id)
+
+    if user is None:
+        request.session.clear()
+        return {"authenticated": False, "username": None}
+
+    request.session["username"] = user.username
+    return {"authenticated": True, "username": user.username}
 
 
 @app.get("/api/board")
 def read_board(request: Request) -> BoardData:
     _require_authenticated(request)
+    user_id = _require_session_user_id(request)
     with SessionLocal() as session:
-        return get_board(session)
+        return get_board(session, user_id)
 
 
 @app.put("/api/board")
 def update_board(payload: BoardData, request: Request) -> BoardData:
     _require_authenticated(request)
+    user_id = _require_session_user_id(request)
     with SessionLocal() as session:
-        return save_board(session, payload)
+        return save_board(session, user_id, payload)
 
 
 @app.post("/api/board/reset")

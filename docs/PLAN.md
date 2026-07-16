@@ -124,7 +124,7 @@ Reconciliation note: database persistence implementation was completed early bef
 
 ### Success criteria
 
-- [ ] Schema doc is clear, normalized, and approved.
+- [x] Schema doc is clear, normalized, and approved.
 - [x] Ordering strategy is deterministic and testable.
 
 ## Part 6: Backend board API and persistence
@@ -136,7 +136,7 @@ Reconciliation note: some Part 6 implementation and tests were completed early d
 - [x] Implement SQLite initialization on startup if DB file does not exist.
 - [x] Implement repository/data-access layer for board entities.
 - [x] Implement authenticated board APIs (read and update operations).
-- [ ] Add validation for payload shape and ownership checks.
+- [x] Add validation for payload shape and ownership checks.
 - [ ] Add error handling for invalid board/card/column operations.
 
 ### Tests
@@ -148,7 +148,7 @@ Reconciliation note: some Part 6 implementation and tests were completed early d
 
 ### Success criteria
 
-- [ ] Backend can persist and return board state per user reliably.
+- [x] Backend can persist and return board state per user reliably.
 - [x] DB auto-creation path works on first run.
 
 ## Part 7: Frontend-backend integration for persistent Kanban

@@ -1,7 +1,13 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.app.board_store import SessionLocal, User, reset_database
 from backend.app.main import app
+
+
+@pytest.fixture(autouse=True)
+def reset_db() -> None:
+    reset_database()
 
 
 @pytest.fixture
@@ -53,3 +59,20 @@ def test_invalid_login_fails(client: TestClient) -> None:
 def test_protected_api_rejects_unauthenticated_requests(client: TestClient) -> None:
     response = client.post("/api/auth/logout")
     assert response.status_code == 401
+
+
+def test_session_resolves_database_user_mapping(client: TestClient) -> None:
+    login_response = client.post(
+        "/api/auth/login",
+        json={"username": "user", "password": "password"},
+    )
+    assert login_response.status_code == 200
+
+    with SessionLocal() as session:
+        user = session.query(User).filter(User.username == "user").one()
+        user.username = "user-renamed"
+        session.commit()
+
+    session_response = client.get("/api/auth/session")
+    assert session_response.status_code == 200
+    assert session_response.json() == {"authenticated": True, "username": "user-renamed"}

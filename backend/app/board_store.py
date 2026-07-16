@@ -4,7 +4,16 @@ import os
 from pathlib import Path
 
 from pydantic import BaseModel
-from sqlalchemy import ForeignKey, Integer, String, create_engine
+from sqlalchemy import (
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    create_engine,
+    event,
+    inspect,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 
@@ -82,11 +91,26 @@ class Base(DeclarativeBase):
     pass
 
 
-class Board(Base):
-    __tablename__ = "boards"
+class User(Base):
+    __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(120), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    boards: Mapped[list[Board]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+
+class Board(Base):
+    __tablename__ = "boards"
+    __table_args__ = (
+        UniqueConstraint("user_id", "title", name="uq_boards_user_title"),
+        Index("idx_boards_user_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(String(120), default="Main Board")
+    user: Mapped[User] = relationship(back_populates="boards")
     columns: Mapped[list[Column]] = relationship(
         back_populates="board", cascade="all, delete-orphan"
     )
@@ -94,6 +118,11 @@ class Board(Base):
 
 class Column(Base):
     __tablename__ = "columns"
+    __table_args__ = (
+        UniqueConstraint("board_id", "position", name="uq_columns_board_position"),
+        Index("idx_columns_board_id", "board_id"),
+        Index("idx_columns_board_position", "board_id", "position"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     board_id: Mapped[int] = mapped_column(ForeignKey("boards.id", ondelete="CASCADE"))
@@ -108,6 +137,11 @@ class Column(Base):
 
 class Card(Base):
     __tablename__ = "cards"
+    __table_args__ = (
+        UniqueConstraint("column_id", "position", name="uq_cards_column_position"),
+        Index("idx_cards_column_id", "column_id"),
+        Index("idx_cards_column_position", "column_id", "position"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     column_id: Mapped[str] = mapped_column(ForeignKey("columns.id", ondelete="CASCADE"))
@@ -132,27 +166,127 @@ ENGINE = create_engine(_database_url(), future=True)
 SessionLocal = sessionmaker(bind=ENGINE, autoflush=False, autocommit=False, future=True)
 
 
-def init_database() -> None:
+@event.listens_for(ENGINE, "connect")
+def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
+def _schema_matches_expected() -> bool:
+    inspector = inspect(ENGINE)
+
+    expected_tables = {"users", "boards", "columns", "cards"}
+    if not expected_tables.issubset(set(inspector.get_table_names())):
+        return False
+
+    boards_columns = {column["name"] for column in inspector.get_columns("boards")}
+    if "user_id" not in boards_columns:
+        return False
+
+    board_uniques = {tuple(sorted(constraint["column_names"])) for constraint in inspector.get_unique_constraints("boards")}
+    if ("title", "user_id") not in board_uniques:
+        return False
+
+    column_uniques = {
+        tuple(sorted(constraint["column_names"]))
+        for constraint in inspector.get_unique_constraints("columns")
+    }
+    if ("board_id", "position") not in column_uniques:
+        return False
+
+    card_uniques = {
+        tuple(sorted(constraint["column_names"]))
+        for constraint in inspector.get_unique_constraints("cards")
+    }
+    if ("column_id", "position") not in card_uniques:
+        return False
+
+    index_names = {
+        *[index["name"] for index in inspector.get_indexes("boards")],
+        *[index["name"] for index in inspector.get_indexes("columns")],
+        *[index["name"] for index in inspector.get_indexes("cards")],
+    }
+    expected_indexes = {
+        "idx_boards_user_id",
+        "idx_columns_board_id",
+        "idx_columns_board_position",
+        "idx_cards_column_id",
+        "idx_cards_column_position",
+    }
+
+    return expected_indexes.issubset(index_names)
+
+
+def _ensure_schema() -> None:
+    if not _schema_matches_expected():
+        Base.metadata.drop_all(bind=ENGINE)
     Base.metadata.create_all(bind=ENGINE)
+
+
+def _ensure_user(session: Session, username: str, password_hash: str) -> User:
+    user = session.query(User).filter(User.username == username).one_or_none()
+    if user is None:
+        user = User(username=username, password_hash=password_hash)
+        session.add(user)
+        session.flush()
+    return user
+
+
+def _ensure_board_for_user(session: Session, user_id: int) -> Board:
+    board = session.query(Board).filter(Board.user_id == user_id).order_by(Board.id.asc()).first()
+    if board is None:
+        board = Board(user_id=user_id, title="Main Board")
+        session.add(board)
+        session.flush()
+
+        user = session.query(User).filter(User.id == user_id).one_or_none()
+        if user is None:
+            raise RuntimeError("User not found for board initialization")
+
+        if user.username == "user":
+            save_board(session, user_id, INITIAL_BOARD_DATA)
+        else:
+            session.commit()
+
+        board = session.query(Board).filter(Board.user_id == user_id).order_by(Board.id.asc()).first()
+        if board is None:
+            raise RuntimeError("Board initialization failed")
+    return board
+
+
+def authenticate_user(session: Session, username: str, password: str) -> User | None:
+    user = session.query(User).filter(User.username == username).one_or_none()
+    if user is None:
+        return None
+    if user.password_hash != password:
+        return None
+    return user
+
+
+def get_user_by_id(session: Session, user_id: int) -> User | None:
+    return session.query(User).filter(User.id == user_id).one_or_none()
+
+
+def init_database() -> None:
+    _ensure_schema()
     with SessionLocal() as session:
-        if session.query(Board).count() == 0:
-            save_board(session, INITIAL_BOARD_DATA)
+        user = _ensure_user(session, "user", "password")
+        _ensure_board_for_user(session, user.id)
+        session.commit()
 
 
 def reset_database() -> None:
     Base.metadata.drop_all(bind=ENGINE)
     Base.metadata.create_all(bind=ENGINE)
     with SessionLocal() as session:
-        save_board(session, INITIAL_BOARD_DATA)
+        user = _ensure_user(session, "user", "password")
+        _ensure_board_for_user(session, user.id)
+        session.commit()
 
 
-def get_board(session: Session) -> BoardData:
-    board = session.query(Board).order_by(Board.id.asc()).first()
-    if board is None:
-        save_board(session, INITIAL_BOARD_DATA)
-        board = session.query(Board).order_by(Board.id.asc()).first()
-        if board is None:
-            raise RuntimeError("Board initialization failed")
+def get_board(session: Session, user_id: int) -> BoardData:
+    board = _ensure_board_for_user(session, user_id)
 
     columns = (
         session.query(Column)
@@ -181,12 +315,8 @@ def get_board(session: Session) -> BoardData:
     return BoardData(columns=result_columns, cards=cards_by_id)
 
 
-def save_board(session: Session, board_data: BoardData) -> BoardData:
-    board = session.query(Board).order_by(Board.id.asc()).first()
-    if board is None:
-        board = Board(title="Main Board")
-        session.add(board)
-        session.flush()
+def save_board(session: Session, user_id: int, board_data: BoardData) -> BoardData:
+    board = _ensure_board_for_user(session, user_id)
 
     session.query(Card).filter(
         Card.column_id.in_(
@@ -220,4 +350,4 @@ def save_board(session: Session, board_data: BoardData) -> BoardData:
             session.add(card)
 
     session.commit()
-    return get_board(session)
+    return get_board(session, user_id)

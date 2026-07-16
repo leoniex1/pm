@@ -93,14 +93,28 @@ Notes:
 
 The current implementation includes these tables:
 
+- users
 - boards
 - columns
 - cards
 
 Implemented relationships:
 
+- boards.user_id -> users.id (ON DELETE CASCADE)
 - columns.board_id -> boards.id (ON DELETE CASCADE)
 - cards.column_id -> columns.id (ON DELETE CASCADE)
+
+Implemented constraints and indexes:
+
+- UNIQUE(users.username)
+- UNIQUE(boards.user_id, boards.title)
+- UNIQUE(columns.board_id, columns.position)
+- UNIQUE(cards.column_id, cards.position)
+- idx_boards_user_id
+- idx_columns_board_id
+- idx_columns_board_position
+- idx_cards_column_id
+- idx_cards_column_position
 
 Implemented ordering strategy:
 
@@ -116,41 +130,24 @@ Bootstrap behavior:
 
 ### Missing users and ownership relationships
 
-Status: missing in current implementation.
+Status: implemented.
 
-- users table is not yet implemented.
-- boards.user_id ownership is not yet implemented.
-- Current board is global single-board storage.
+- users table is implemented.
+- boards.user_id ownership is implemented.
+- Board access is resolved by authenticated session user_id.
+- MVP uses one board per user through service-layer behavior.
 
 Impact:
 
-- No per-user board ownership in DB yet.
-- Acceptable for current MVP behavior, but this is a planned Part 6+ enhancement.
+- Ownership isolation is now enforced in backend board reads/writes.
 
 ### Constraints and indexes missing in implementation
 
-Status: partially missing.
-
-Missing unique constraints:
-
-- UNIQUE(board_id, position) on columns
-- UNIQUE(column_id, position) on cards
-
-Missing ownership constraints:
-
-- UNIQUE(user_id, title) on boards (depends on users/user_id)
-
-Missing indexes:
-
-- idx_columns_board_id
-- idx_columns_board_position
-- idx_cards_column_id
-- idx_cards_column_position
-- idx_boards_user_id (depends on user_id)
+Status: aligned for approved constraints and indexes.
 
 Impact:
 
-- Functionality works for MVP, but integrity/performance constraints are weaker than approved target.
+- Deterministic ordering and reconstruction are enforced by constraints and ordering indexes.
 
 ## Cascade and delete behavior
 
