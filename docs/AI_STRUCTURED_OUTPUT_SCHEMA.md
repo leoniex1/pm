@@ -100,7 +100,7 @@ Required fields:
 - `id`: unique operation id
 - `type`: `"move_card"`
 - `card_id`: existing card id in current user's board
-- `to_column_id`: existing column id in current user's board
+- `column_id`: existing column id in current user's board
 - `position`: integer >= 0
 
 Validation notes:
@@ -150,9 +150,13 @@ Required fields:
 
 If model output is malformed or unsafe:
 - No board mutation is applied.
-- Backend returns a safe response with no applied operations.
+- Backend returns HTTP 422 for malformed/incomplete/unsupported/unsafe structured operation payloads.
 - Error is recorded server-side without secrets.
 - API key is never included in logs, responses, or frontend payloads.
+
+Nonexistent entity contract (Option A):
+- If the model cannot safely resolve referenced card/column entities, it should return an assistant explanation with `operations: []`.
+- Backend response remains HTTP 200 and applies no mutation.
 
 Unsafe includes (non-exhaustive):
 - unknown operation type,
@@ -202,7 +206,7 @@ When operation execution is implemented (after approval), operations will be app
       "id": "op-2",
       "type": "move_card",
       "card_id": "card-6",
-      "to_column_id": "col-review",
+      "column_id": "col-review",
       "position": 0
     }
   ]
@@ -264,7 +268,7 @@ Reason:
       "id": "op-1",
       "type": "move_card",
       "card_id": "card-1",
-      "to_column_id": "col-done"
+      "column_id": "col-done"
     }
   ]
 }
@@ -303,7 +307,7 @@ Reason:
       "id": "op-1",
       "type": "move_card",
       "card_id": "foreign-user-card",
-      "to_column_id": "col-review",
+      "column_id": "col-review",
       "position": 0
     }
   ]

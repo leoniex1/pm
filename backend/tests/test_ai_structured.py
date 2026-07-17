@@ -83,6 +83,102 @@ def test_valid_structured_response_applies_operations(client: TestClient, monkey
     assert board["columns"][0]["cardIds"][0] == "card-ai-1"
 
 
+def test_incomplete_create_card_is_rejected(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _login(client)
+
+    _mock_structured_response(
+        monkeypatch,
+        {
+            "assistant_message": "Created card.",
+            "operations": [
+                {
+                    "id": "op-1",
+                    "type": "create_card",
+                }
+            ],
+        },
+    )
+
+    response = client.post("/api/ai/respond", json={"message": "create", "history": []})
+    assert response.status_code == 422
+    assert "create_card" in response.json()["detail"]
+
+
+def test_complete_create_card_is_applied(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _login(client)
+
+    _mock_structured_response(
+        monkeypatch,
+        {
+            "assistant_message": "Created card.",
+            "operations": [
+                {
+                    "id": "op-create-1",
+                    "type": "create_card",
+                    "card_id": "ai-card-abc123",
+                    "column_id": "col-backlog",
+                    "title": "Review budget",
+                    "details": "Review next quarter budget.",
+                    "position": 0,
+                }
+            ],
+        },
+    )
+
+    response = client.post("/api/ai/respond", json={"message": "create", "history": []})
+    assert response.status_code == 200
+
+    board = _board(client)
+    assert board["columns"][0]["cardIds"][0] == "ai-card-abc123"
+
+
+def test_incomplete_rename_column_is_rejected(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _login(client)
+
+    _mock_structured_response(
+        monkeypatch,
+        {
+            "assistant_message": "Renamed column.",
+            "operations": [
+                {
+                    "id": "op-1",
+                    "type": "rename_column",
+                }
+            ],
+        },
+    )
+
+    response = client.post("/api/ai/respond", json={"message": "rename", "history": []})
+    assert response.status_code == 422
+    assert "rename_column" in response.json()["detail"]
+
+
+def test_complete_rename_column_is_applied(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _login(client)
+
+    _mock_structured_response(
+        monkeypatch,
+        {
+            "assistant_message": "Renamed column.",
+            "operations": [
+                {
+                    "id": "op-rename-1",
+                    "type": "rename_column",
+                    "column_id": "col-review",
+                    "title": "Quality Check",
+                }
+            ],
+        },
+    )
+
+    response = client.post("/api/ai/respond", json={"message": "rename", "history": []})
+    assert response.status_code == 200
+
+    board = _board(client)
+    titles = {column["id"]: column["title"] for column in board["columns"]}
+    assert titles["col-review"] == "Quality Check"
+
+
 def test_invalid_json_is_rejected(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _login(client)
 
@@ -223,7 +319,7 @@ def test_invalid_position_is_rejected(client: TestClient, monkeypatch: pytest.Mo
                     "id": "op-1",
                     "type": "move_card",
                     "card_id": "card-1",
-                    "to_column_id": "col-done",
+                    "column_id": "col-done",
                     "position": 99,
                 }
             ],
@@ -273,7 +369,7 @@ def test_validate_entire_operations_before_apply_anything(
                     "id": "op-2",
                     "type": "move_card",
                     "card_id": "card-1",
-                    "to_column_id": "col-done",
+                    "column_id": "col-done",
                     "position": 999,
                 },
             ],
@@ -332,3 +428,25 @@ def test_successful_commit_persists_changes(client: TestClient, monkeypatch: pyt
     after = _board(client)
     titles = {column["id"]: column["title"] for column in after["columns"]}
     assert titles["col-review"] == "QA"
+
+
+def test_nonexistent_entity_chat_only_noop_returns_200_and_no_mutation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _login(client)
+    before = _board(client)
+
+    _mock_structured_response(
+        monkeypatch,
+        {
+            "assistant_message": "I could not find that card or column, so I did not apply changes.",
+            "operations": [],
+        },
+    )
+
+    response = client.post("/api/ai/respond", json={"message": "move a nonexistent card", "history": []})
+    assert response.status_code == 200
+    assert response.json()["operations"] == []
+
+    after = _board(client)
+    assert after == before

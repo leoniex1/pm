@@ -199,6 +199,8 @@ Reconciliation note: core Part 7 integration was completed early during Part 5 e
 ## Part 9: Structured outputs for AI-assisted board updates (approval gate first)
 
 Reconciliation note: structured-output schema approved and backend parser/atomic mutation path implemented.
+Prompt contract was hardened with exact required fields/examples and deterministic create-card ID guidance.
+Safety contract uses Option A for nonexistent entities when model returns chat-only no-op (`operations: []`, HTTP 200, no mutation).
 
 ### Checklist
 

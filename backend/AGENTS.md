@@ -44,6 +44,8 @@ This folder contains the FastAPI backend used for the PM MVP single-container de
 
 - Structured output contract proposal is documented in `docs/AI_STRUCTURED_OUTPUT_SCHEMA.md`.
 - Operations must include unique `id` fields for auditing/debugging.
+- Prompt contract includes exact required fields for each allowed operation and complete JSON examples.
+- Nonexistent entity requests should prefer Option A no-op behavior (`operations: []`) with no mutation.
 
 ## Test-only behavior
 

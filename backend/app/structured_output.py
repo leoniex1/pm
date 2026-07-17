@@ -45,7 +45,7 @@ class UpdateCardOperation(_OperationBase):
 class MoveCardOperation(_OperationBase):
     type: Literal["move_card"]
     card_id: str = Field(min_length=1, max_length=64)
-    to_column_id: str = Field(min_length=1, max_length=64)
+    column_id: str = Field(min_length=1, max_length=64)
     position: int = Field(ge=0)
 
 
@@ -106,6 +106,65 @@ def build_structured_prompt(board: BoardData, user_message: str, history: list[C
         ],
     }
 
+    create_example = {
+        "assistant_message": "Created the requested card.",
+        "operations": [
+            {
+                "id": "op-create-1",
+                "type": "create_card",
+                "card_id": "ai-card-a1b2c3",
+                "column_id": "col-backlog",
+                "title": "Review budget",
+                "details": "Review budget for next quarter.",
+                "position": 0,
+            }
+        ],
+    }
+    update_example = {
+        "assistant_message": "Updated the card details.",
+        "operations": [
+            {
+                "id": "op-update-1",
+                "type": "update_card",
+                "card_id": "card-1",
+                "details": "Updated details.",
+            }
+        ],
+    }
+    move_example = {
+        "assistant_message": "Moved the card.",
+        "operations": [
+            {
+                "id": "op-move-1",
+                "type": "move_card",
+                "card_id": "card-1",
+                "column_id": "col-progress",
+                "position": 0,
+            }
+        ],
+    }
+    delete_example = {
+        "assistant_message": "Deleted the card.",
+        "operations": [
+            {
+                "id": "op-delete-1",
+                "type": "delete_card",
+                "card_id": "card-1",
+            }
+        ],
+    }
+    rename_example = {
+        "assistant_message": "Renamed the column.",
+        "operations": [
+            {
+                "id": "op-rename-1",
+                "type": "rename_column",
+                "column_id": "col-review",
+                "title": "Quality Check",
+            }
+        ],
+    }
+
     return (
         "You are a kanban assistant. Respond with JSON only. No markdown, no prose outside JSON.\n"
         "Return an object with this shape exactly: "
@@ -116,7 +175,33 @@ def build_structured_prompt(board: BoardData, user_message: str, history: list[C
         "- Every operation must include a unique id.\n"
         "- Allowed operation types only: create_card, update_card, move_card, delete_card, rename_column.\n"
         "- Never include unknown fields.\n"
+        "- Never omit required fields.\n"
+        "- Never return operations that contain only id and type.\n"
+        "- Reuse existing card_id and column_id values from Context board JSON whenever referencing existing entities.\n"
+        "- For create_card only, generate a new deterministic card_id in this format: ai-card-<short-unique-suffix>.\n"
+        "- If no safe valid mutation can be produced, return operations as an empty array [].\n"
         "- Do not request SQL, file access, code execution, or shell commands.\n"
+        "Required fields by operation type:\n"
+        "- create_card: id, type, card_id, column_id, title, details, position\n"
+        "- update_card: id, type, card_id, title and/or details\n"
+        "- move_card: id, type, card_id, column_id, position\n"
+        "- delete_card: id, type, card_id\n"
+        "- rename_column: id, type, column_id, title\n"
+        "Complete valid JSON example for create_card:\n"
+        + json.dumps(create_example)
+        + "\n"
+        "Complete valid JSON example for update_card:\n"
+        + json.dumps(update_example)
+        + "\n"
+        "Complete valid JSON example for move_card:\n"
+        + json.dumps(move_example)
+        + "\n"
+        "Complete valid JSON example for delete_card:\n"
+        + json.dumps(delete_example)
+        + "\n"
+        "Complete valid JSON example for rename_column:\n"
+        + json.dumps(rename_example)
+        + "\n"
         "Context board JSON: "
         + json.dumps(board_json)
         + "\n"
@@ -216,8 +301,8 @@ def _apply_update_card(state: _BoardState, operation: UpdateCardOperation) -> No
 def _apply_move_card(state: _BoardState, operation: MoveCardOperation) -> None:
     if operation.card_id not in state.cards:
         raise StructuredOutputError(f"Unknown or cross-board card reference: {operation.card_id}")
-    if operation.to_column_id not in state.column_cards:
-        raise StructuredOutputError(f"Unknown or cross-board column reference: {operation.to_column_id}")
+    if operation.column_id not in state.column_cards:
+        raise StructuredOutputError(f"Unknown or cross-board column reference: {operation.column_id}")
 
     source_column_id = _find_card_column(state, operation.card_id)
     if source_column_id is None:
@@ -226,7 +311,7 @@ def _apply_move_card(state: _BoardState, operation: MoveCardOperation) -> None:
     source_cards = state.column_cards[source_column_id]
     source_cards.remove(operation.card_id)
 
-    target_cards = state.column_cards[operation.to_column_id]
+    target_cards = state.column_cards[operation.column_id]
     if operation.position > len(target_cards):
         source_cards.append(operation.card_id)
         raise StructuredOutputError("Invalid position for move_card")
