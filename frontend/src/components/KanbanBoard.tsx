@@ -11,6 +11,10 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import {
+  AiChatSidebar,
+  type ChatMessage,
+} from "@/components/AiChatSidebar";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
@@ -23,18 +27,26 @@ export const KanbanBoard = ({ onLogout }: KanbanBoardProps) => {
   const [board, setBoard] = useState<BoardData>(() => initialData);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
 
+  const reloadBoard = async () => {
+    const response = await fetch("/api/board", {
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      throw new Error("Unable to reload board.");
+    }
+
+    const serverBoard = (await response.json()) as BoardData;
+    setBoard(serverBoard);
+  };
+
   useEffect(() => {
     const loadBoard = async () => {
-      const response = await fetch("/api/board", {
-        credentials: "include",
-      });
-
-      if (!response.ok) {
+      try {
+        await reloadBoard();
+      } catch {
         return;
       }
-
-      const serverBoard = (await response.json()) as BoardData;
-      setBoard(serverBoard);
     };
 
     void loadBoard();
@@ -126,6 +138,47 @@ export const KanbanBoard = ({ onLogout }: KanbanBoardProps) => {
 
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
 
+  const handleAiSend = async (message: string, history: ChatMessage[]) => {
+    const response = await fetch("/api/ai/respond", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ message, history }),
+    });
+
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      const detail =
+        payload && typeof payload === "object" && "detail" in payload
+          ? (payload as { detail?: string }).detail
+          : null;
+      throw new Error(detail || "AI request failed.");
+    }
+
+    const data = payload as {
+      assistant_message: string;
+      operations?: Array<{ type: string }>;
+    };
+    const operationsCount = data.operations?.length ?? 0;
+
+    if (operationsCount > 0) {
+      await reloadBoard();
+    }
+
+    return {
+      assistantMessage: data.assistant_message,
+      operationsCount,
+    };
+  };
+
   return (
     <div className="relative overflow-hidden">
       <div className="pointer-events-none absolute left-0 top-0 h-[420px] w-[420px] -translate-x-1/3 -translate-y-1/3 rounded-full bg-[radial-gradient(circle,_rgba(32,157,215,0.25)_0%,_rgba(32,157,215,0.05)_55%,_transparent_70%)]" />
@@ -177,32 +230,36 @@ export const KanbanBoard = ({ onLogout }: KanbanBoardProps) => {
           </div>
         </header>
 
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <section className="grid gap-6 lg:grid-cols-5">
-            {board.columns.map((column) => (
-              <KanbanColumn
-                key={column.id}
-                column={column}
-                cards={column.cardIds.map((cardId) => board.cards[cardId])}
-                onRename={handleRenameColumn}
-                onAddCard={handleAddCard}
-                onDeleteCard={handleDeleteCard}
-              />
-            ))}
-          </section>
-          <DragOverlay>
-            {activeCard ? (
-              <div className="w-[260px]">
-                <KanbanCardPreview card={activeCard} />
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <section className="grid gap-6 lg:grid-cols-5">
+              {board.columns.map((column) => (
+                <KanbanColumn
+                  key={column.id}
+                  column={column}
+                  cards={column.cardIds.map((cardId) => board.cards[cardId])}
+                  onRename={handleRenameColumn}
+                  onAddCard={handleAddCard}
+                  onDeleteCard={handleDeleteCard}
+                />
+              ))}
+            </section>
+            <DragOverlay>
+              {activeCard ? (
+                <div className="w-[260px]">
+                  <KanbanCardPreview card={activeCard} />
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+
+          <AiChatSidebar onSend={handleAiSend} />
+        </div>
       </main>
     </div>
   );

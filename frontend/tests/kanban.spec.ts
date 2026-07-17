@@ -178,3 +178,64 @@ test("persists board changes after reload", async ({ page }) => {
   await expect(page.getByTestId("column-col-backlog").getByText("Gather customer signals")).toHaveCount(0);
   await expect(page.getByTestId("column-col-review").getByTestId("card-card-1")).toBeVisible();
 });
+
+test("uses AI sidebar for chat-only request", async ({ page }) => {
+  test.setTimeout(120000);
+  await login(page);
+
+  const sidebar = page.getByTestId("ai-chat-sidebar");
+  await expect(sidebar).toBeVisible();
+  await expect(sidebar.getByTestId("ai-empty-state")).toBeVisible();
+
+  const waitForAiResponse = () =>
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/ai/respond") &&
+        response.request().method() === "POST" &&
+        response.status() === 200
+    );
+
+  await sidebar.getByTestId("ai-input").fill("What is the purpose of this Kanban board?");
+  await Promise.all([waitForAiResponse(), sidebar.getByTestId("ai-send").click()]);
+
+  await expect(sidebar.getByTestId("ai-message-user").last()).toContainText(
+    "What is the purpose of this Kanban board?"
+  );
+  await expect(sidebar.getByTestId("ai-message-assistant").last()).toBeVisible();
+  await expect(sidebar.getByTestId("ai-operation-count")).toContainText("No changes");
+});
+
+test("uses AI sidebar for mutation and reflects board update with persistence", async ({ page }) => {
+  test.setTimeout(120000);
+  await login(page);
+
+  const sidebar = page.getByTestId("ai-chat-sidebar");
+  const backlogColumn = page.getByTestId("column-col-backlog");
+  const progressColumn = page.getByTestId("column-col-progress");
+
+  const waitForAiResponse = () =>
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/ai/respond") &&
+        response.request().method() === "POST" &&
+        response.status() === 200
+    );
+
+  await sidebar
+    .getByTestId("ai-input")
+    .fill("Create a card named AI E2E card in the Backlog column.");
+  await Promise.all([waitForAiResponse(), sidebar.getByTestId("ai-send").click()]);
+
+  await expect(backlogColumn.getByText("AI E2E card")).toBeVisible();
+  await expect(sidebar.getByTestId("ai-operation-count")).toContainText("1 change");
+
+  await sidebar
+    .getByTestId("ai-input")
+    .fill("Move the AI E2E card to In Progress.");
+  await Promise.all([waitForAiResponse(), sidebar.getByTestId("ai-send").click()]);
+
+  await expect(progressColumn.getByText("AI E2E card")).toBeVisible();
+
+  await page.reload();
+  await expect(progressColumn.getByText("AI E2E card")).toBeVisible();
+});

@@ -230,24 +230,29 @@ Safety contract uses Option A for nonexistent entities when model returns chat-o
 
 ### Checklist
 
-- [ ] Add sidebar chat UI integrated with backend AI endpoint.
-- [ ] Show conversation history and loading/error states.
-- [ ] Apply returned board updates to UI state automatically.
-- [ ] Ensure visual integration fits existing design language.
-- [ ] Keep Kanban interactions and AI interactions coherent under concurrent updates.
+- [x] Add sidebar chat UI integrated with backend AI endpoint.
+- [x] Show conversation history and loading/error states.
+- [x] Apply returned board updates to UI state automatically.
+- [x] Ensure visual integration fits existing design language.
+- [x] Keep Kanban interactions and AI interactions coherent under concurrent updates.
 
 ### Tests
 
-- [ ] Component tests for sidebar send/render states.
-- [ ] Integration tests for AI chat request/response cycle.
-- [ ] Integration tests verifying AI-triggered board changes render immediately.
-- [ ] Regression tests for manual board edits after AI updates.
+- [x] Component tests for sidebar send/render states.
+- [x] Integration tests for AI chat request/response cycle.
+- [x] Integration tests verifying AI-triggered board changes render immediately.
+- [x] Regression tests for manual board edits after AI updates.
 
 ### Success criteria
 
-- [ ] Sidebar chat works end to end.
-- [ ] Board refreshes automatically when AI returns updates.
-- [ ] Existing Kanban behavior remains stable.
+- [x] Sidebar chat works end to end.
+- [x] Board refreshes automatically when AI returns updates.
+- [x] Existing Kanban behavior remains stable.
+
+### Manual verification note
+
+- [x] Manual browser checks completed for login-gated sidebar, chat-only prompt, AI mutation prompt (create), rename prompt, automatic board updates, refresh persistence, logout flow, and narrow-width usability.
+- [x] Known residual risk recorded: real-model responses can intermittently fail strict JSON parsing at `/api/ai/respond` (HTTP 422), surfaced in sidebar error state without breaking board/manual flows.
 
 ## Cross-cutting quality gates
 

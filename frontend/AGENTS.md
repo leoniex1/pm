@@ -10,18 +10,21 @@ This frontend is a Next.js app (App Router) that currently runs as a client-side
 - `src/app/page.tsx`: Home route; renders `KanbanBoard`.
 - `src/app/globals.css`: Global styles and color tokens.
 - `src/components/KanbanBoard.tsx`: Main board state container and drag/drop orchestration.
+- `src/components/AiChatSidebar.tsx`: AI chat sidebar UI, local chat history, send/loading/error states.
 - `src/components/KanbanColumn.tsx`: Column rendering, title editing, card list, add form.
 - `src/components/KanbanCard.tsx`: Sortable card UI and delete action.
 - `src/components/KanbanCardPreview.tsx`: Drag overlay preview.
 - `src/components/NewCardForm.tsx`: Inline add-card form with simple validation.
 - `src/lib/kanban.ts`: Board types, seed data, card movement logic, id helper.
 - `src/components/KanbanBoard.test.tsx`: Component-level interaction tests.
+- `src/components/AiChatSidebar.test.tsx`: Component tests for chat input, pending state, and error rendering.
 - `src/lib/kanban.test.ts`: Unit tests for board movement logic.
 - `tests/kanban.spec.ts`: Playwright e2e test entry point.
 
 ## Architecture and state
 
-- `KanbanBoard` owns in-memory board state in React `useState`.
+- `KanbanBoard` owns board state and loads/persists it through backend APIs.
+- `AiChatSidebar` owns in-memory chat history for the current page session.
 - Board shape:
   - `columns: Column[]` where each column stores ordered `cardIds`.
   - `cards: Record<string, Card>` keyed by id.
@@ -30,14 +33,21 @@ This frontend is a Next.js app (App Router) that currently runs as a client-side
   - `useDroppable` in columns.
   - `useSortable` in cards.
   - `moveCard` in `src/lib/kanban.ts` is the core reorder/move function.
-- Column renaming, card create, and card delete all happen client-side only.
-- There is no backend/API integration yet, no auth, and no persistence.
+- Column renaming, card create, card delete, and card move are reflected immediately in UI and then persisted through backend APIs.
+- Auth is session cookie based; frontend API calls are sent with credentials.
+- Board data is fetched from `GET /api/board` and persisted with `PUT /api/board`.
+- AI chat uses `POST /api/ai/respond` with `{ message, history }` and triggers board reload when operations are returned.
 
 ## Important components and responsibilities
 
 - `KanbanBoard`
   - Handles `onDragStart`/`onDragEnd` and active drag overlay state.
-  - Applies immutable board updates for rename/add/delete/move operations.
+  - Persists rename/add/delete/move operations through backend API calls.
+  - Wires AI sidebar send handler and reloads board after AI mutations.
+- `AiChatSidebar`
+  - Renders in-session chat transcript and no-changes/change count signal.
+  - Handles Enter-to-send and Shift+Enter newline behavior.
+  - Renders pending and server-error states from `/api/ai/respond`.
 - `KanbanColumn`
   - Displays editable title input and card count.
   - Binds add/delete callbacks to column-specific actions.
@@ -78,7 +88,8 @@ npm install
 
 ## Constraints and integration notes
 
-- Preserve the existing board UX baseline (rename, add, delete, drag/drop) while integrating backend.
-- The app currently depends on browser state only; future backend integration must avoid regressions in ordering behavior.
+- Preserve baseline board UX (rename, add, delete, drag/drop) while integrating API-backed persistence.
+- Keep AI chat history in memory only (no persisted transcript for MVP).
+- AI failures from strict structured parsing are expected to surface as user-visible error text; board state must remain stable.
 - Keep color tokens aligned with project palette in `src/app/globals.css`.
-- For MVP integration, frontend should be statically built and served by FastAPI from the same container.
+- Frontend is statically built and served by FastAPI from the same container.
