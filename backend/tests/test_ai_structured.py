@@ -450,3 +450,33 @@ def test_nonexistent_entity_chat_only_noop_returns_200_and_no_mutation(
 
     after = _board(client)
     assert after == before
+
+
+def test_empty_message_is_rejected(client: TestClient) -> None:
+    _login(client)
+    response = client.post("/api/ai/respond", json={"message": "", "history": []})
+    assert response.status_code == 422
+
+
+def test_overlong_message_is_rejected(client: TestClient) -> None:
+    _login(client)
+    response = client.post("/api/ai/respond", json={"message": "x" * 4001, "history": []})
+    assert response.status_code == 422
+
+
+def test_ai_respond_is_rate_limited(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _login(client)
+    monkeypatch.setattr("backend.app.main._AI_RATE_LIMIT_MAX_REQUESTS", 2)
+
+    _mock_structured_response(
+        monkeypatch,
+        {"assistant_message": "Here is your summary.", "operations": []},
+    )
+
+    first = client.post("/api/ai/respond", json={"message": "summarize", "history": []})
+    second = client.post("/api/ai/respond", json={"message": "summarize", "history": []})
+    third = client.post("/api/ai/respond", json={"message": "summarize", "history": []})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert third.status_code == 429

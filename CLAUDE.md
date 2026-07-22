@@ -10,36 +10,50 @@ create/edit/move cards. NextJS frontend + Python FastAPI backend, packaged into 
 AI calls go through OpenRouter (`openai/gpt-oss-120b` by default).
 
 Read `AGENTS.md` (root) for business requirements/decisions, `docs/PLAN.md` for the phased execution
-plan/status, `docs/DATABASE_DESIGN.md` for the DB schema, and `docs/AI_STRUCTURED_OUTPUT_SCHEMA.md` for
-the AI structured-output contract. Folder-level `AGENTS.md` files (`backend/AGENTS.md`,
-`frontend/AGENTS.md`, `scripts/AGENTS.md`) contain architecture/reference notes for that folder — check
-them before diving into that area.
+plan/status, `docs/DATABASE_DESIGN.md` for the DB schema, `docs/AI_STRUCTURED_OUTPUT_SCHEMA.md` for
+the AI structured-output contract, and `docs/code_reviews.md` for the code review history and
+remediation record. Folder-level `AGENTS.md` files (`backend/AGENTS.md`, `frontend/AGENTS.md`,
+`scripts/AGENTS.md`) contain architecture/reference notes for that folder — check them before diving
+into that area.
 
 ## Commands
 
 ### Backend (run from repo root — imports are rooted at `backend.app.*`)
 
 ```bash
-pip install -r backend/requirements.txt
+pip install -r backend/requirements-dev.txt   # base requirements + pytest
 pytest backend/tests                     # all backend tests
 pytest backend/tests/test_board.py       # single file
 pytest backend/tests/test_board.py::test_seeded_board_available_after_login  # single test
 ```
 
 Tests must be run from the repository root (not `backend/`) because test modules import via
-`backend.app.board_store`, `backend.app.main`, etc.
+`backend.app.board_store`, `backend.app.main`, etc. Point `DATABASE_URL` at a scratch SQLite file before
+running tests/experiments locally if you want to avoid touching `backend/data/kanban.db`.
 
 ### Frontend (run from `frontend/`)
 
 ```bash
 npm install
-npm run dev          # dev server
+npm run dev          # Next.js dev server only — UI iteration, no backend behind it (see below)
+npm run dev:full      # builds the frontend and serves it through the real backend on a scratch DB
 npm run build        # production build (also produces the static export used by Docker)
 npm run lint
 npm run test:unit    # vitest
-npm run test:e2e     # playwright
+npm run test:e2e     # builds + serves the full app on a scratch DB, runs Playwright, tears down
+npm run test:e2e:raw # playwright test only, against whatever E2E_BASE_URL already points at
 npm run test:all     # unit + e2e
 ```
+
+`npm run dev` only runs the Next.js dev server — every frontend fetch call uses a relative path, and
+there is no backend on port 3000, so anything that hits `/api/*` (including the login/auth redirect)
+will not work in that mode. It's fine for pure UI/styling iteration. For anything that needs the API,
+use `npm run dev:full` (manual local full-stack testing) or `npm run test:e2e` (automated). Both scripts
+live in `frontend/scripts/` (`full-stack.mjs`, `e2e.mjs`, `serve.mjs`) and both build the frontend, copy
+it into `backend/static/`, and run the real FastAPI backend on a scratch database in the OS temp
+directory — never `backend/data/kanban.db`. Setting `E2E_BASE_URL` before running `npm run test:e2e`
+skips all of that and runs Playwright directly against whatever URL you provide instead (e.g. a Docker
+container already running via `scripts/start-windows.ps1`).
 
 ### Docker (single container, run from repo root)
 
@@ -59,31 +73,48 @@ read from the project-root `.env` file / environment.
 - `backend/app/main.py` is the single FastAPI entrypoint: auth endpoints, board CRUD, AI endpoints, and
   the catch-all static-file server for the exported NextJS app all live here.
 - Auth is a server-side cookie session (`SessionMiddleware`), hardcoded credentials `user`/`password`
-  for the MVP. There is no JWT/localStorage-based auth guard — session state is authoritative.
+  for the MVP. There is no JWT/localStorage-based auth guard — session state is authoritative. Passwords
+  are hashed with `bcrypt` (`board_store._hash_password`/`_verify_password`) — never stored or compared
+  in plaintext.
 - Every board/AI route requires an authenticated session and resolves `user_id` from the session, not
   from client-supplied data.
 - The catch-all `GET /{full_path:path}` route serves the exported frontend, redirecting to `/login` for
   unauthenticated requests to non-public paths, with an allowlist for public paths (`/login`,
   `/favicon.ico`, `/robots.txt`, `_next/*` assets).
+- No CORS middleware: the frontend is always served same-origin (see the frontend commands above), and
+  every frontend fetch call uses a relative path, so no cross-origin request is ever issued.
+- `/api/ai/respond` and `/api/ai/connectivity` are rate-limited per authenticated user (in-memory
+  sliding window, `main._enforce_ai_rate_limit` — see `_AI_RATE_LIMIT_MAX_REQUESTS`/`_WINDOW_SECONDS`).
+  This is process-local, which is fine for the current single-instance local MVP.
 
 ### Board persistence (`backend/app/board_store.py`)
 
 - Normalized SQLAlchemy schema: `users` -> `boards` -> `columns` -> `cards`, cascading deletes, with
   `position` integer columns giving deterministic ordering (unique per parent scope: `(board_id,
-  position)` for columns, `(column_id, position)` for cards).
+  position)` for columns, `(column_id, position)` for cards). Note `columns.id`/`cards.id` are string
+  primary keys unique across the *whole table*, not scoped per board.
 - The JSON API shape (`BoardData`: `columns: ColumnData[]` + `cards: dict[id, CardData]`, where each
   column holds an ordered `cardIds` list) is intentionally denormalized/order-based — it does not mirror
   the DB row shape. `get_board` reconstructs this shape from position-ordered DB rows; `save_board` does
   a full delete-and-reinsert of a user's columns/cards on every write, deriving `position` from array
   order. There is no partial/diffed update — every board write replaces the whole columns/cards set for
-  that user's board.
+  that user's board. `BoardData` has a `model_validator` enforcing referential integrity (no duplicate
+  column/card ids, no cardIds referencing a missing card, no orphaned card entries) — this runs on every
+  `PUT /api/board` automatically and rejects malformed payloads with a 422 instead of silently dropping
+  data or crashing.
 - MVP is one board per user; multi-board support is schema-ready (`boards.user_id` + unique
-  `(user_id, title)`) but not exposed.
-- `init_database()` runs on app startup: creates schema if missing/mismatched (see
-  `_schema_matches_expected`) and seeds the hardcoded `user`/`password` account with `INITIAL_BOARD_DATA`
-  if no board exists yet.
-- `POST /api/board/reset` only works when `ALLOW_TEST_RESET=1` — it's test-only and must stay disabled
-  in normal operation.
+  `(user_id, title)`) and every user (not just the hardcoded `user` account) gets a populated seeded
+  board on first access (`_ensure_board_for_user`/`_seed_board_data_for_user`).
+- **Schema management uses Alembic** (`backend/alembic.ini`, `backend/migrations/`), not
+  `create_all`/`drop_all`. `board_store._ensure_schema()` never drops existing tables: a brand-new
+  database is migrated to head; a database already on Alembic gets any pending migrations; a database
+  created before Alembic was adopted (tables exist, no `alembic_version` row) is `stamp`ed to the initial
+  revision in place, since that migration is defined to exactly match the pre-Alembic schema. Add future
+  schema changes as new Alembic revisions under `backend/migrations/versions/` — never reintroduce
+  drop-and-recreate logic on the normal startup path.
+- `reset_database()` is a **test-only** full wipe-and-reseed (still uses `drop_all`/`create_all`
+  directly) — it is never called from the normal startup path, only from test fixtures and from
+  `POST /api/board/reset`, which itself only works when `ALLOW_TEST_RESET=1`.
 
 ### AI structured output (`backend/app/structured_output.py`)
 
@@ -135,6 +166,10 @@ atomic board mutations.
   transcript) and calls `POST /api/ai/respond` with `{ message, history }`; a returned board triggers an
   immediate reload in `KanbanBoard`.
 - All API calls are sent with credentials (cookie session); there is no client-side auth token.
+- `persistBoard` in `KanbanBoard.tsx` applies the optimistic update locally, then awaits the `PUT`
+  response: on a non-OK response or a network error it reverts to the previous board state and shows a
+  dismissible error banner (`data-testid="board-save-error"`) rather than silently diverging from what's
+  actually persisted.
 - Color tokens live in `src/app/globals.css` — keep changes aligned with the palette in the root
   `AGENTS.md` (accent yellow `#ecad0a`, blue `#209dd7`, purple `#753991`, dark navy `#032147`, gray
   `#888888`).

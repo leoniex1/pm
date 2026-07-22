@@ -4,13 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:full": "node scripts/serve.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "node scripts/e2e.mjs",
+    "test:e2e:raw": "playwright test",
     "test:all": "npm run test:unit && npm run test:e2e"
   },
   "dependencies": {

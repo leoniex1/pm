@@ -111,6 +111,78 @@ def test_invalid_board_payload_is_rejected(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_board_payload_with_missing_card_reference_is_rejected(client: TestClient) -> None:
+    _login(client)
+    board = client.get("/api/board").json()
+
+    board["columns"][0]["cardIds"].append("card-does-not-exist")
+
+    response = client.put("/api/board", json=board)
+    assert response.status_code == 422
+    assert "missing card entries" in response.json()["detail"][0]["msg"]
+
+
+def test_board_payload_with_orphaned_card_entry_is_rejected(client: TestClient) -> None:
+    _login(client)
+    board = client.get("/api/board").json()
+
+    board["cards"]["orphan-card"] = {
+        "id": "orphan-card",
+        "title": "Orphan",
+        "details": "Not referenced by any column.",
+    }
+
+    response = client.put("/api/board", json=board)
+    assert response.status_code == 422
+    assert "not referenced by any column" in response.json()["detail"][0]["msg"]
+
+
+def test_board_payload_with_duplicate_card_id_across_columns_is_rejected(client: TestClient) -> None:
+    _login(client)
+    board = client.get("/api/board").json()
+
+    duplicated_card_id = board["columns"][0]["cardIds"][0]
+    board["columns"][1]["cardIds"].append(duplicated_card_id)
+
+    response = client.put("/api/board", json=board)
+    assert response.status_code == 422
+    assert "Duplicate card id" in response.json()["detail"][0]["msg"]
+
+
+def test_board_payload_with_duplicate_column_id_is_rejected(client: TestClient) -> None:
+    _login(client)
+    board = client.get("/api/board").json()
+
+    board["columns"].append(board["columns"][0])
+
+    response = client.put("/api/board", json=board)
+    assert response.status_code == 422
+    assert "Duplicate column id" in response.json()["detail"][0]["msg"]
+
+
+def test_new_user_receives_a_populated_seeded_board_not_an_empty_one() -> None:
+    with SessionLocal() as session:
+        second_user = User(username="second-user", password_hash="unused")
+        session.add(second_user)
+        session.flush()
+        session.commit()
+
+        board = get_board(session, second_user.id)
+
+        assert len(board.columns) == len(INITIAL_BOARD_DATA.columns)
+        assert len(board.cards) == len(INITIAL_BOARD_DATA.cards)
+        assert board.columns[0].title == INITIAL_BOARD_DATA.columns[0].title
+        assert sum(len(column.cardIds) for column in board.columns) == len(INITIAL_BOARD_DATA.cards)
+
+        # The seeded ids must not collide with the first user's board, which
+        # already occupies the literal INITIAL_BOARD_DATA ids.
+        first_user = session.query(User).filter(User.username == "user").one()
+        first_board = get_board(session, first_user.id)
+        first_column_ids = {column.id for column in first_board.columns}
+        second_column_ids = {column.id for column in board.columns}
+        assert first_column_ids.isdisjoint(second_column_ids)
+
+
 def test_board_ownership_is_isolated_by_user() -> None:
     with SessionLocal() as session:
         user_one = session.query(User).filter(User.username == "user").one()

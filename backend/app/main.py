@@ -1,8 +1,9 @@
 import os
+import time
+from collections import defaultdict, deque
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
@@ -39,13 +40,11 @@ app.add_middleware(
     https_only=False,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORS middleware: the frontend is always served same-origin (either the
+# static export served by this backend, or the FastAPI-served build used for
+# local full-stack development/e2e — see scripts/serve.mjs). Every fetch call
+# in the frontend uses a relative path, so no cross-origin request is ever
+# issued and no CORS configuration is needed.
 
 init_database()
 
@@ -59,6 +58,15 @@ _FRONTEND_PUBLIC_PATHS = {
     "/robots.txt",
 }
 
+_AI_MESSAGE_MAX_LENGTH = 4000
+
+# In-memory per-user sliding-window rate limit for AI endpoints. This is
+# process-local (resets on restart, not shared across multiple workers),
+# which is acceptable for the current single-instance local MVP deployment.
+_AI_RATE_LIMIT_WINDOW_SECONDS = 60
+_AI_RATE_LIMIT_MAX_REQUESTS = 20
+_ai_request_log: dict[int, deque[float]] = defaultdict(deque)
+
 
 class LoginRequest(BaseModel):
     username: str
@@ -66,11 +74,11 @@ class LoginRequest(BaseModel):
 
 
 class ConnectivityRequest(BaseModel):
-    prompt: str = "What is 2 + 2?"
+    prompt: str = Field(default="What is 2 + 2?", max_length=_AI_MESSAGE_MAX_LENGTH)
 
 
 class AIKanbanRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=_AI_MESSAGE_MAX_LENGTH)
     history: list[ConversationTurn] = Field(default_factory=list)
 
 
@@ -132,6 +140,22 @@ def _is_frontend_asset_path(path: str) -> bool:
 
 def _is_public_frontend_path(path: str) -> bool:
     return path in _FRONTEND_PUBLIC_PATHS or _is_frontend_asset_path(path)
+
+
+def _enforce_ai_rate_limit(user_id: int) -> None:
+    now = time.monotonic()
+    log = _ai_request_log[user_id]
+
+    while log and now - log[0] > _AI_RATE_LIMIT_WINDOW_SECONDS:
+        log.popleft()
+
+    if len(log) >= _AI_RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many AI requests. Please wait a moment and try again.",
+        )
+
+    log.append(now)
 
 
 @app.post("/api/auth/login")
@@ -211,6 +235,8 @@ def reset_board(request: Request) -> dict[str, bool]:
 @app.post("/api/ai/connectivity")
 def openrouter_connectivity(payload: ConnectivityRequest, request: Request) -> dict[str, str]:
     _require_authenticated(request)
+    user_id = _require_session_user_id(request)
+    _enforce_ai_rate_limit(user_id)
 
     prompt = payload.prompt.strip() or "What is 2 + 2?"
     try:
@@ -227,6 +253,7 @@ def openrouter_connectivity(payload: ConnectivityRequest, request: Request) -> d
 def ai_kanban_respond(payload: AIKanbanRequest, request: Request) -> dict[str, object]:
     _require_authenticated(request)
     user_id = _require_session_user_id(request)
+    _enforce_ai_rate_limit(user_id)
 
     with SessionLocal() as session:
         current_board = get_board(session, user_id)

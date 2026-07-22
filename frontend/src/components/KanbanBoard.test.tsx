@@ -190,4 +190,35 @@ describe("KanbanBoard", () => {
 
     expect(await screen.findByTestId("ai-error")).toHaveTextContent("AI request failed.");
   });
+
+  it("shows an error and reverts the board when saving fails", async () => {
+    render(<KanbanBoard />);
+    await screen.findByDisplayValue("Backlog");
+    const column = getFirstColumn();
+
+    global.fetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (typeof input === "string" && input === "/api/board" && !init?.method) {
+        return new Response(JSON.stringify(boardState), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (typeof input === "string" && input === "/api/board" && init?.method === "PUT") {
+        return new Response(JSON.stringify({ detail: "Board save failed" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      throw new Error("Unexpected fetch call");
+    }) as typeof fetch;
+
+    await userEvent.click(within(column).getByRole("button", { name: /add a card/i }));
+    await userEvent.type(within(column).getByPlaceholderText(/card title/i), "Offline card");
+    await userEvent.click(within(column).getByRole("button", { name: /add card/i }));
+
+    expect(await screen.findByTestId("board-save-error")).toBeInTheDocument();
+    expect(within(column).queryByText("Offline card")).not.toBeInTheDocument();
+  });
 });

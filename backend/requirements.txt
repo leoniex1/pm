@@ -3,3 +3,5 @@ uvicorn[standard]==0.35.0
 httpx==0.28.1
 itsdangerous==2.2.0
 SQLAlchemy==2.0.43
+alembic==1.18.5
+bcrypt==5.0.0

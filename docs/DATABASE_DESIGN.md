@@ -27,7 +27,9 @@ Indexes:
 Notes:
 
 - Username uniqueness supports future multi-user expansion.
-- Password storage should be hash-only; no plaintext.
+- Password storage should be hash-only; no plaintext. **Implemented**: `password_hash` stores a bcrypt
+  hash (`board_store._hash_password`/`_verify_password`); login verifies via `bcrypt.checkpw`, never a
+  plaintext comparison. See `docs/code_reviews.md` finding F2.
 
 ### boards
 
@@ -149,6 +151,20 @@ Impact:
 
 - Deterministic ordering and reconstruction are enforced by constraints and ordering indexes.
 
+### Multi-user seeding
+
+Status: implemented.
+
+- Every user gets a populated seeded starter board on first access, not only the hardcoded `user`
+  account. Since `columns.id`/`cards.id` are unique across the whole table (not scoped per board), the
+  seed data for any user beyond the first is given ids suffixed with `-u<user_id>` to avoid colliding
+  with an already-seeded board (`board_store._seed_board_data_for_user`).
+
+Impact:
+
+- The schema's multi-user readiness is no longer schema-only — the bootstrap/seeding logic actually
+  supports it. See `docs/code_reviews.md` finding F12.
+
 ## Cascade and delete behavior
 
 Current implemented behavior:
@@ -173,12 +189,22 @@ Determinism guarantees:
 
 ## Database bootstrap strategy
 
-- On backend startup:
-  - create_all for schema
-  - if boards table has no rows, insert seeded initial board
+- On backend startup, schema is managed via Alembic migrations (`backend/alembic.ini`,
+  `backend/migrations/`), never by dropping and recreating tables:
+  - Brand-new database: migrated to head (creates all tables).
+  - Database already on Alembic: any pending migrations are applied.
+  - Database created before Alembic was adopted (tables exist, no `alembic_version` bookkeeping table):
+    stamped to the initial revision in place, since that migration is defined to exactly match the
+    pre-Alembic schema. No table is ever dropped on this path.
+  - If a user has no board yet, a seeded initial board is inserted for them (every user, not only the
+    hardcoded `user` account — see "Gap analysis" below).
+  - This replaced an earlier `drop_all`-on-mismatch startup check that could silently destroy the
+    persistent `backend/data` volume on a routine schema change; see `docs/code_reviews.md` finding F1.
 
 - Test bootstrap utilities:
-  - reset routine drops/recreates schema and re-seeds initial board
+  - `reset_database()` remains a test-only routine that drops/recreates schema and re-seeds the initial
+    board; it is never called from the normal startup path (only from test fixtures and from
+    `POST /api/board/reset`, itself gated behind `ALLOW_TEST_RESET=1`).
 
 ## Board JSON API representation
 

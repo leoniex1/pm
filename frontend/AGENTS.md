@@ -16,10 +16,11 @@ This frontend is a Next.js app (App Router) that currently runs as a client-side
 - `src/components/KanbanCardPreview.tsx`: Drag overlay preview.
 - `src/components/NewCardForm.tsx`: Inline add-card form with simple validation.
 - `src/lib/kanban.ts`: Board types, seed data, card movement logic, id helper.
-- `src/components/KanbanBoard.test.tsx`: Component-level interaction tests.
+- `src/components/KanbanBoard.test.tsx`: Component-level interaction tests, including failed-save error/revert behavior.
 - `src/components/AiChatSidebar.test.tsx`: Component tests for chat input, pending state, and error rendering.
 - `src/lib/kanban.test.ts`: Unit tests for board movement logic.
 - `tests/kanban.spec.ts`: Playwright e2e test entry point.
+- `scripts/full-stack.mjs`, `scripts/e2e.mjs`, `scripts/serve.mjs`: build+serve orchestration for e2e/local full-stack dev (see "Build, run, and test scripts").
 
 ## Architecture and state
 
@@ -35,7 +36,10 @@ This frontend is a Next.js app (App Router) that currently runs as a client-side
   - `moveCard` in `src/lib/kanban.ts` is the core reorder/move function.
 - Column renaming, card create, card delete, and card move are reflected immediately in UI and then persisted through backend APIs.
 - Auth is session cookie based; frontend API calls are sent with credentials.
-- Board data is fetched from `GET /api/board` and persisted with `PUT /api/board`.
+- Board data is fetched from `GET /api/board` and persisted with `PUT /api/board`. `persistBoard`
+  applies the change optimistically, then checks the response: on failure (non-OK status or a network
+  error) it reverts to the previous board state and shows an error banner
+  (`data-testid="board-save-error"`) rather than silently diverging from what's actually persisted.
 - AI chat uses `POST /api/ai/respond` with `{ message, history }` and triggers board reload when operations are returned.
 
 ## Important components and responsibilities
@@ -64,11 +68,13 @@ Run from `frontend/` (these map directly to `package.json` scripts):
 
 ```bash
 npm run dev
+npm run dev:full
 npm run build
 npm run start
 npm run lint
 npm run test:unit
 npm run test:e2e
+npm run test:e2e:raw
 npm run test:all
 ```
 
@@ -77,6 +83,24 @@ Install dependencies once before running scripts:
 ```bash
 npm install
 ```
+
+`npm run dev` only starts the Next.js dev server. It has no backend behind it — every frontend fetch
+call uses a relative path, so `/api/*` calls (including the login/auth-redirect flow) do not resolve to
+anything in that mode. It's the right choice for pure UI/styling work; it is not a full-stack dev server.
+
+For anything that needs the real API:
+
+- `npm run dev:full` (`scripts/serve.mjs`) builds the frontend, copies it into `backend/static/`, and
+  runs the real FastAPI backend on a scratch SQLite database (never `backend/data/kanban.db`) — use
+  this for manual local full-stack testing without Docker.
+- `npm run test:e2e` (`scripts/e2e.mjs`) does the same build+serve, runs the full Playwright suite
+  against it, and always tears the backend down afterward (success or failure). This is the fix for a
+  previously broken default: Playwright's own `webServer` config (see `playwright.config.ts`) only knows
+  how to start a bare `next dev`, which cannot pass a single test that touches `/api/*` or the
+  unauthenticated-redirect behavior (that logic lives only in the FastAPI backend). If `E2E_BASE_URL` is
+  already set (e.g. pointing at a Docker container), `scripts/e2e.mjs` skips all of that and just runs
+  Playwright directly — `npm run test:e2e:raw` does the same without the env-var check, for when you
+  want to invoke Playwright directly against whatever is already running.
 
 ## Coding conventions
 

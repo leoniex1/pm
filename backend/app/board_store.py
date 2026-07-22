@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from pydantic import BaseModel
+import bcrypt
+from alembic import command
+from alembic.config import Config
+from pydantic import BaseModel, model_validator
 from sqlalchemy import (
     ForeignKey,
     Index,
@@ -32,6 +35,32 @@ class ColumnData(BaseModel):
 class BoardData(BaseModel):
     columns: list[ColumnData]
     cards: dict[str, CardData]
+
+    @model_validator(mode="after")
+    def _validate_referential_integrity(self) -> "BoardData":
+        column_ids = [column.id for column in self.columns]
+        if len(column_ids) != len(set(column_ids)):
+            raise ValueError("Duplicate column id in board payload")
+
+        all_card_refs: list[str] = []
+        for column in self.columns:
+            all_card_refs.extend(column.cardIds)
+
+        if len(all_card_refs) != len(set(all_card_refs)):
+            raise ValueError("Duplicate card id referenced across columns")
+
+        referenced_ids = set(all_card_refs)
+        card_dict_ids = set(self.cards.keys())
+
+        missing = referenced_ids - card_dict_ids
+        if missing:
+            raise ValueError(f"cardIds reference missing card entries: {sorted(missing)}")
+
+        orphaned = card_dict_ids - referenced_ids
+        if orphaned:
+            raise ValueError(f"cards entries are not referenced by any column: {sorted(orphaned)}")
+
+        return self
 
 
 INITIAL_BOARD_DATA = BoardData(
@@ -173,6 +202,10 @@ def _database_url() -> str:
 ENGINE = create_engine(_database_url(), future=True)
 SessionLocal = sessionmaker(bind=ENGINE, autoflush=False, autocommit=False, future=True)
 
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+_ALEMBIC_INI_PATH = _BACKEND_ROOT / "alembic.ini"
+_MIGRATIONS_DIR = _BACKEND_ROOT / "migrations"
+
 
 @event.listens_for(ENGINE, "connect")
 def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:
@@ -181,64 +214,95 @@ def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:
     cursor.close()
 
 
-def _schema_matches_expected() -> bool:
-    inspector = inspect(ENGINE)
-
-    expected_tables = {"users", "boards", "columns", "cards"}
-    if not expected_tables.issubset(set(inspector.get_table_names())):
-        return False
-
-    boards_columns = {column["name"] for column in inspector.get_columns("boards")}
-    if "user_id" not in boards_columns:
-        return False
-
-    board_uniques = {tuple(sorted(constraint["column_names"])) for constraint in inspector.get_unique_constraints("boards")}
-    if ("title", "user_id") not in board_uniques:
-        return False
-
-    column_uniques = {
-        tuple(sorted(constraint["column_names"]))
-        for constraint in inspector.get_unique_constraints("columns")
-    }
-    if ("board_id", "position") not in column_uniques:
-        return False
-
-    card_uniques = {
-        tuple(sorted(constraint["column_names"]))
-        for constraint in inspector.get_unique_constraints("cards")
-    }
-    if ("column_id", "position") not in card_uniques:
-        return False
-
-    index_names = {
-        *[index["name"] for index in inspector.get_indexes("boards")],
-        *[index["name"] for index in inspector.get_indexes("columns")],
-        *[index["name"] for index in inspector.get_indexes("cards")],
-    }
-    expected_indexes = {
-        "idx_boards_user_id",
-        "idx_columns_board_id",
-        "idx_columns_board_position",
-        "idx_cards_column_id",
-        "idx_cards_column_position",
-    }
-
-    return expected_indexes.issubset(index_names)
+def _alembic_config() -> Config:
+    config = Config(str(_ALEMBIC_INI_PATH))
+    config.set_main_option("script_location", str(_MIGRATIONS_DIR))
+    config.set_main_option("sqlalchemy.url", _database_url())
+    return config
 
 
 def _ensure_schema() -> None:
-    if not _schema_matches_expected():
-        Base.metadata.drop_all(bind=ENGINE)
-    Base.metadata.create_all(bind=ENGINE)
+    """Bring the schema up to date without ever dropping existing data.
+
+    - Brand-new database (no tables at all): run migrations to create the schema.
+    - Database already managed by Alembic: run any pending migrations.
+    - Database created before Alembic was adopted (tables exist, no
+      alembic_version bookkeeping table): the initial migration is defined to
+      exactly match that pre-Alembic schema, so it is safe to "stamp" it as
+      already being at head without touching any table or row.
+    """
+    inspector = inspect(ENGINE)
+    table_names = set(inspector.get_table_names())
+    config = _alembic_config()
+
+    with ENGINE.connect() as connection:
+        config.attributes["connection"] = connection
+
+        if "alembic_version" in table_names:
+            command.upgrade(config, "head")
+            return
+
+        expected_tables = {"users", "boards", "columns", "cards"}
+        if expected_tables.issubset(table_names):
+            command.stamp(config, "head")
+            return
+
+        command.upgrade(config, "head")
 
 
-def _ensure_user(session: Session, username: str, password_hash: str) -> User:
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def _verify_password(password: str, password_hash: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    except ValueError:
+        return False
+
+
+def _ensure_user(session: Session, username: str, password: str) -> User:
     user = session.query(User).filter(User.username == username).one_or_none()
     if user is None:
-        user = User(username=username, password_hash=password_hash)
+        user = User(username=username, password_hash=_hash_password(password))
         session.add(user)
         session.flush()
     return user
+
+
+def _seed_board_data_for_user(session: Session, user_id: int) -> BoardData:
+    """Build the initial board to seed for a user's first board.
+
+    columns.id and cards.id are primary keys that are unique across the
+    whole table, not scoped per board, so INITIAL_BOARD_DATA's fixed ids can
+    only be reused as-is for the very first board ever seeded. Any
+    subsequent user gets an equivalent board with ids made unique to them,
+    so every user (not just a single hardcoded account) reliably gets a
+    populated starter board.
+    """
+    canonical_column_ids = [column.id for column in INITIAL_BOARD_DATA.columns]
+    collision = session.query(Column.id).filter(Column.id.in_(canonical_column_ids)).first()
+    if collision is None:
+        return INITIAL_BOARD_DATA
+
+    suffix = f"-u{user_id}"
+    card_id_map = {card_id: f"{card_id}{suffix}" for card_id in INITIAL_BOARD_DATA.cards}
+
+    columns = [
+        ColumnData(
+            id=f"{column.id}{suffix}",
+            title=column.title,
+            cardIds=[card_id_map[card_id] for card_id in column.cardIds],
+        )
+        for column in INITIAL_BOARD_DATA.columns
+    ]
+    cards = {
+        card_id_map[card_id]: CardData(
+            id=card_id_map[card_id], title=card.title, details=card.details
+        )
+        for card_id, card in INITIAL_BOARD_DATA.cards.items()
+    }
+    return BoardData(columns=columns, cards=cards)
 
 
 def _ensure_board_for_user(session: Session, user_id: int) -> Board:
@@ -248,14 +312,7 @@ def _ensure_board_for_user(session: Session, user_id: int) -> Board:
         session.add(board)
         session.flush()
 
-        user = session.query(User).filter(User.id == user_id).one_or_none()
-        if user is None:
-            raise RuntimeError("User not found for board initialization")
-
-        if user.username == "user":
-            save_board(session, user_id, INITIAL_BOARD_DATA)
-        else:
-            session.commit()
+        save_board(session, user_id, _seed_board_data_for_user(session, user_id))
 
         board = session.query(Board).filter(Board.user_id == user_id).order_by(Board.id.asc()).first()
         if board is None:
@@ -267,7 +324,7 @@ def authenticate_user(session: Session, username: str, password: str) -> User | 
     user = session.query(User).filter(User.username == username).one_or_none()
     if user is None:
         return None
-    if user.password_hash != password:
+    if not _verify_password(password, user.password_hash):
         return None
     return user
 
@@ -285,8 +342,15 @@ def init_database() -> None:
 
 
 def reset_database() -> None:
+    """Test-only full reset. Never called from the normal startup path."""
     Base.metadata.drop_all(bind=ENGINE)
     Base.metadata.create_all(bind=ENGINE)
+
+    config = _alembic_config()
+    with ENGINE.connect() as connection:
+        config.attributes["connection"] = connection
+        command.stamp(config, "head")
+
     with SessionLocal() as session:
         user = _ensure_user(session, "user", "password")
         _ensure_board_for_user(session, user.id)

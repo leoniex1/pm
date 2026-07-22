@@ -102,7 +102,7 @@ export const AiChatSidebar = ({ onSend }: AiChatSidebarProps) => {
             data-testid="ai-empty-state"
           >
             Ask the AI to summarize your board or make a safe change. Example:
-            "Create a card in Backlog".
+            &ldquo;Create a card in Backlog.&rdquo;
           </div>
         ) : null}
 

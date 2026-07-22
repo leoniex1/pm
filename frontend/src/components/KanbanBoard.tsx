@@ -26,6 +26,7 @@ type KanbanBoardProps = {
 export const KanbanBoard = ({ onLogout }: KanbanBoardProps) => {
   const [board, setBoard] = useState<BoardData>(() => initialData);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const reloadBoard = async () => {
     const response = await fetch("/api/board", {
@@ -53,15 +54,29 @@ export const KanbanBoard = ({ onLogout }: KanbanBoardProps) => {
   }, []);
 
   const persistBoard = async (nextBoard: BoardData) => {
+    const previousBoard = board;
     setBoard(nextBoard);
-    await fetch("/api/board", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-      body: JSON.stringify(nextBoard),
-    });
+    setSaveError(null);
+
+    try {
+      const response = await fetch("/api/board", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify(nextBoard),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Unable to save board changes (status ${response.status}).`);
+      }
+    } catch (error) {
+      setBoard(previousBoard);
+      setSaveError(
+        error instanceof Error ? error.message : "Unable to save board changes."
+      );
+    }
   };
 
   const sensors = useSensors(
@@ -185,6 +200,15 @@ export const KanbanBoard = ({ onLogout }: KanbanBoardProps) => {
       <div className="pointer-events-none absolute bottom-0 right-0 h-[520px] w-[520px] translate-x-1/4 translate-y-1/4 rounded-full bg-[radial-gradient(circle,_rgba(117,57,145,0.18)_0%,_rgba(117,57,145,0.05)_55%,_transparent_75%)]" />
 
       <main className="relative mx-auto flex min-h-screen max-w-[1500px] flex-col gap-10 px-6 pb-16 pt-12">
+        {saveError ? (
+          <div
+            className="rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700"
+            data-testid="board-save-error"
+          >
+            {saveError} Your last change was not saved and has been reverted.
+          </div>
+        ) : null}
+
         <header className="flex flex-col gap-6 rounded-[32px] border border-[var(--stroke)] bg-white/80 p-8 shadow-[var(--shadow)] backdrop-blur">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
