@@ -38,7 +38,7 @@ def _mock_structured_response(monkeypatch: pytest.MonkeyPatch, payload: dict) ->
     def _fake_query_openrouter(_: str) -> OpenRouterReply:
         return OpenRouterReply(model="openai/gpt-oss-120b", text=response_text)
 
-    monkeypatch.setattr("backend.app.main.query_openrouter", _fake_query_openrouter)
+    monkeypatch.setattr("backend.app.routers.ai.query_openrouter", _fake_query_openrouter)
 
 
 def test_valid_structured_response_applies_operations(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -185,7 +185,7 @@ def test_invalid_json_is_rejected(client: TestClient, monkeypatch: pytest.Monkey
     def _fake_query_openrouter(_: str) -> OpenRouterReply:
         return OpenRouterReply(model="openai/gpt-oss-120b", text="not-json")
 
-    monkeypatch.setattr("backend.app.main.query_openrouter", _fake_query_openrouter)
+    monkeypatch.setattr("backend.app.routers.ai.query_openrouter", _fake_query_openrouter)
 
     response = client.post("/api/ai/respond", json={"message": "hi", "history": []})
     assert response.status_code == 422
@@ -400,7 +400,7 @@ def test_transaction_rollback_when_execution_fails(client: TestClient, monkeypat
     def _raise_save_board(*args, **kwargs):
         raise RuntimeError("db write failed")
 
-    monkeypatch.setattr("backend.app.main.save_board", _raise_save_board)
+    monkeypatch.setattr("backend.app.routers.ai.save_board", _raise_save_board)
 
     response = client.post("/api/ai/respond", json={"message": "rename", "history": []})
     assert response.status_code == 500
@@ -466,7 +466,7 @@ def test_overlong_message_is_rejected(client: TestClient) -> None:
 
 def test_ai_respond_is_rate_limited(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _login(client)
-    monkeypatch.setattr("backend.app.main._AI_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr("backend.app.routers.ai._AI_RATE_LIMIT_MAX_REQUESTS", 2)
 
     _mock_structured_response(
         monkeypatch,

@@ -14,14 +14,43 @@ The most important issues found are not in the "happy path" logic — they are i
 
 ---
 
-## Remediation status (2026-07-21)
+## Remediation status (2026-07-22)
 
-All Critical (F1), High (F2–F5), and Medium (F6–F12) findings below have been remediated in this
-repository. Low findings (F13–F16) were intentionally left as-is, matching each finding's own
-"Recommended action" (no immediate action needed for the current single-user local MVP scope).
+All 16 findings — Critical (F1), High (F2–F5), Medium (F6–F12), and now Low (F13–F16) — have been
+remediated in this repository. Every finding below has a **Remediation** block recording what changed,
+which files were touched, and what test evidence backs the fix.
 
-Each finding below now has a **Remediation** block recording what changed, which files were touched,
-and what test evidence backs the fix. Summary of files changed across the whole remediation pass:
+### Second remediation pass (2026-07-22): F13–F16, and a `backend/app/main.py` refactor
+
+F13–F16 were remediated on 2026-07-22, and `backend/app/main.py` (previously a single 319-line file
+holding every route, model, and helper) was split into a package — `config.py`, `middleware.py`,
+`dependencies.py`, and `routers/{auth,board,ai,health,frontend}.py` — with `main.py` reduced to app
+creation, middleware/DB wiring, and router registration. This was a pure reorganization: every endpoint,
+response shape, auth behavior, and DB behavior was preserved and re-verified by the full test suite
+(80/80 backend tests passing after the move, up from 62, with only import/monkeypatch *paths* updated
+in 4 test files to point at the new module locations — no assertions changed). See the F13–F16 entries
+below and the "After second remediation pass" test table for full evidence.
+
+Files changed in this second pass:
+
+- `backend/app/config.py`, `middleware.py`, `dependencies.py` (new); `backend/app/routers/` (new package:
+  `auth.py`, `board.py`, `ai.py`, `health.py`, `frontend.py`) — the `main.py` refactor, and F13's
+  session-secret/HTTPS-only configuration.
+- `backend/app/main.py` — reduced to a thin entrypoint.
+- `backend/tests/test_config.py`, `test_app_structure.py` (new) — F13 and refactor-safety tests.
+- `backend/tests/conftest.py`, `test_ai_structured.py`, `test_openrouter.py` — updated import/monkeypatch
+  paths only (`backend.app.main.*` → `backend.app.routers.ai.*`), required by the refactor.
+- `frontend/src/lib/kanban.ts` — F14: `createId` now uses `crypto.randomUUID()`.
+- `frontend/src/lib/kanban.test.ts` — new `createId` tests.
+- `frontend/src/app/login/page.tsx` — F15: removed prefilled username/password.
+- `frontend/src/app/login/page.test.tsx` (new) — confirms empty fields.
+- `frontend/public/{file,globe,next,vercel,window}.svg` (deleted) — F16.
+- `CLAUDE.md`, `backend/AGENTS.md`, `frontend/AGENTS.md` — updated for the new backend structure and
+  F13–F15.
+
+### First remediation pass (2026-07-21): F1–F12
+
+Summary of files changed in the first pass:
 
 - `backend/app/board_store.py` — Alembic-based schema management (F1), bcrypt password hashing (F2/F6),
   `BoardData` referential-integrity validator (F5), collision-safe multi-user seeding (F12).
@@ -278,34 +307,68 @@ and what test evidence backs the fix. Summary of files changed across the whole 
 
 ### Low
 
-**Status: intentionally deferred.** Per each finding's own "Recommended action" ("no action needed for
-current MVP scope"), and per the remediation instructions (Critical/High/Medium only), F13–F16 below
-were left as-is. They remain a valid checklist for the day multi-user support or any non-local
-deployment is scheduled.
+**Status: remediated 2026-07-22.** F13–F16 were initially left as-is per each finding's own
+"Recommended action" during the first remediation pass; all four were subsequently remediated in the
+second pass, per explicit instruction to close out the remaining Low findings.
 
 **F13 — Hardcoded session secret and `https_only=False` default**
 - **Affected files:** `backend/app/main.py` (`SessionMiddleware`)
 - **Issue:** `SESSION_SECRET` defaults to the literal string `"pm-mvp-dev-session-secret"` if unset, and `https_only=False` is hardcoded (not environment-driven).
 - **Why it matters:** Fine for a local single-user Docker MVP; would need to change (a real secret, `https_only=True`) the moment this is exposed beyond localhost.
 - **Recommended action:** No change needed now; worth a one-line comment noting these must change before any non-local deployment.
+- **Remediation:** Moved to `backend/app/config.py`. `resolve_session_secret(environment, secret)` only
+  falls back to the hardcoded development secret when `ENVIRONMENT == "development"` (the default —
+  local/test behavior is unchanged with no env vars set); any other `ENVIRONMENT` with no
+  `SESSION_SECRET` set raises `SessionSecretConfigurationError` at startup instead of silently running
+  insecurely. `SESSION_HTTPS_ONLY` is now an env var (default `false`, unchanged behavior locally;
+  settable to `true` behind TLS) instead of a hardcoded `False`. `middleware.py`'s
+  `configure_middleware(app)` wires both into `SessionMiddleware`.
+  - **Files:** `backend/app/config.py` (new), `backend/app/middleware.py` (new).
+  - **Tests added:** `backend/tests/test_config.py` — development fallback, explicit-secret-always-wins,
+    non-development-without-secret raises, non-development-with-secret succeeds, and boolean-env-parsing
+    coverage for `SESSION_HTTPS_ONLY`.
+  - **Verification evidence:** all new tests pass; every existing auth/session test continues to pass
+    with zero env vars set (confirming the development fallback preserves current behavior exactly).
 
 **F14 — Frontend card/column id generation uses `Math.random()`**
 - **Affected files:** `frontend/src/lib/kanban.ts` (`createId`)
 - **Issue:** IDs are `Math.random().toString(36)` plus a timestamp — not cryptographically random.
 - **Why it matters:** Purely a display/identity id with no security role today (contrast with the AI path's stricter `^[a-zA-Z0-9_-]{1,64}$`-pattern ids), so this is cosmetic; flagging only because collision probability, while very low, is non-zero under rapid concurrent creation.
 - **Recommended action:** No action needed; `crypto.randomUUID()` would be a trivial drop-in if ever revisited.
+- **Remediation:** `createId` now returns `` `${prefix}-${crypto.randomUUID()}` ``. Confirmed
+  `crypto.randomUUID()` works under both real browsers and the Vitest/jsdom test environment used here.
+  - **Files:** `frontend/src/lib/kanban.ts`.
+  - **Tests added:** `frontend/src/lib/kanban.test.ts` — asserts the UUID format and that successive
+    calls produce distinct ids.
+  - **Verification evidence:** new tests pass; `KanbanBoard.test.tsx`'s existing add/remove-card test
+    (which exercises `createId` indirectly) continues to pass unmodified.
 
 **F15 — Login page pre-fills the MVP credentials**
 - **Affected files:** `frontend/src/app/login/page.tsx`
 - **Issue:** The username/password inputs default to `useState("user")` / `useState("password")` — the actual working credentials are visibly pre-populated on page load.
 - **Why it matters:** Convenient for local demoing; would hand out credentials immediately if this build were ever shown to anyone outside a trusted local session.
 - **Recommended action:** No action needed for current MVP scope; remove the pre-fill before any wider demo/deployment.
+- **Remediation:** Both fields now start as `useState("")`. The login flow itself (submit, redirect,
+  error handling) is unchanged.
+  - **Files:** `frontend/src/app/login/page.tsx`.
+  - **Tests added:** `frontend/src/app/login/page.test.tsx` (new) — asserts both fields render empty.
+  - **Verification evidence:** new test passes; the Playwright e2e login flow (`kanban.spec.ts`'s
+    `login()` helper, which explicitly `.fill()`s both fields regardless of any prefill) continues to
+    pass unmodified — confirming no test anywhere depended on the prefilled values.
 
 **F16 — Unused default Next.js template assets not covered by the backend's public-path allowlist**
 - **Affected files:** `frontend/public/{file,globe,next,vercel,window}.svg`, `backend/app/main.py` (`_FRONTEND_PUBLIC_PATHS`)
 - **Issue:** These boilerplate assets are unreferenced by the current UI and, if requested directly while unauthenticated, would redirect to `/login` rather than 404 or serve — a minor inconsistency, not a functional bug since nothing currently links to them.
 - **Why it matters:** Purely tidiness/maintainability; unused files add noise for future readers.
 - **Recommended action:** Delete the unused SVGs during the next frontend cleanup pass.
+- **Remediation:** Confirmed via `grep` across `frontend/src` and `frontend/tests` that none of the five
+  SVGs were referenced anywhere, then deleted all five. `frontend/public/` is now empty (Next.js does
+  not require a populated `public/` directory; the favicon is served from `src/app/favicon.ico` via the
+  App Router convention, unaffected).
+  - **Files:** `frontend/public/file.svg`, `globe.svg`, `next.svg`, `vercel.svg`, `window.svg` (all
+    deleted).
+  - **Verification evidence:** pre-deletion `grep` found zero references; `npm run build` and the full
+    Playwright e2e suite both pass after deletion, confirming nothing depended on these files.
 
 ---
 
@@ -338,6 +401,22 @@ via its filesystem last-write-time, unchanged from before this remediation work 
 | F4 regression (targeted) | `npm run test:e2e -- -g "redirects unauthenticated"`, no `E2E_BASE_URL` | **1/1 passed** | The exact test that failed in the original review's reproduction now passes through the new default workflow. |
 | F1 regression (targeted) | `backend/tests/test_schema_migrations.py` | **3/3 passed** | Includes the direct non-destructiveness proof: a pre-Alembic database with a real row survives `_ensure_schema()` unchanged. |
 
+### After second remediation pass (2026-07-22): F13–F16 + `main.py` refactor
+
+Same scratch-database discipline as above; `backend/data/kanban.db`'s last-write-time was re-confirmed
+unchanged at the end of this pass too.
+
+| Suite | Command | Result | Notes |
+|---|---|---|---|
+| Backend unit/integration | `pytest backend/tests` (scratch SQLite DB) | **80/80 passed** | 62 from the first pass + 18 new: `test_config.py` (F13) and `test_app_structure.py` (refactor route/ordering checks). |
+| Frontend unit | `npm run test:unit` (Vitest) | **18/18 passed** | 15 from the first pass + 3 new: 2 `createId` tests (F14), 1 login-page empty-fields test (F15). |
+| Frontend lint | `npm run lint` | **0 errors** | |
+| Frontend production build | `npm run build` (`next build`) | **Success** | Confirms the F16 asset deletion and F15 login-page change don't break the build. |
+| Frontend e2e (fixed default workflow) | `npm run test:e2e`, no `E2E_BASE_URL` | **8/8 passed** | Full suite green after the `main.py` refactor and all F13–F16 changes — including the login flow with no prefilled credentials, and the AI endpoints behind their (unmoved-in-behavior) rate limiter. |
+| Refactor route sanity check | Direct import of `backend.app.main.app`, print `app.routes` | All 14 expected routes present, correct methods, catch-all last | Run once immediately after the refactor, before the full test suite, specifically to catch route-ordering mistakes early. |
+| Refactor regression (targeted) | `backend/tests/test_app_structure.py` | **3/3 passed** | Included in the 80 above; directly asserts route registration, catch-all-is-last ordering, and router/module separation. |
+| F13 regression (targeted) | `backend/tests/test_config.py` | **11/11 passed** | Included in the 80 above. |
+
 ---
 
 ## Prioritized action plan
@@ -357,6 +436,12 @@ was verified:
 9. **F11, F12 (Medium):** Originally scoped as "no immediate action" for the current MVP, but remediated
    anyway per explicit instruction to close every Medium finding — **Done: rate limiting added (F11);
    multi-user seeding fixed, including a real id-collision bug this surfaced (F12).**
-10. **F13, F14, F15, F16 (Low):** Left as-is, per each finding's own recommended action and the scope of
-    this remediation pass (Critical/High/Medium only). Still the right checklist for multi-user support
-    or non-local deployment.
+10. **F13, F14, F15, F16 (Low):** Originally left as-is (Critical/High/Medium-only scope for the first
+    pass); remediated in the second pass on 2026-07-22 — **Done: env-driven session secret with a
+    development-only fallback + configurable HTTPS-only cookies (F13); `crypto.randomUUID()` (F14); no
+    prefilled login credentials (F15); unused SVGs deleted (F16).**
+
+No findings remain open as of 2026-07-22. `backend/app/main.py` was also refactored into a package
+(`config.py`, `middleware.py`, `dependencies.py`, `routers/`) in the same pass — not itself a finding,
+but done because F13's fix and the growing route count made a good moment to separate concerns; see
+"Remediation status" at the top of this document.

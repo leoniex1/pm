@@ -1,4 +1,19 @@
-import { moveCard, type Column } from "@/lib/kanban";
+import { createId, moveCard, type Column } from "@/lib/kanban";
+
+describe("createId", () => {
+  it("prefixes a collision-resistant UUID", () => {
+    const id = createId("card");
+    expect(id).toMatch(
+      /^card-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
+  });
+
+  it("generates distinct ids on successive calls", () => {
+    const first = createId("card");
+    const second = createId("card");
+    expect(first).not.toEqual(second);
+  });
+});
 
 describe("moveCard", () => {
   const baseColumns: Column[] = [

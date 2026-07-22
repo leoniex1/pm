@@ -68,14 +68,41 @@ read from the project-root `.env` file / environment.
 
 ## Architecture
 
-### Request flow and auth
+### Backend package structure
 
-- `backend/app/main.py` is the single FastAPI entrypoint: auth endpoints, board CRUD, AI endpoints, and
-  the catch-all static-file server for the exported NextJS app all live here.
+`backend/app/main.py` is a thin FastAPI entrypoint only: it creates the `FastAPI` app, calls
+`configure_middleware(app)`, calls `init_database()`, and includes the routers below — nothing else.
+Concerns are split into:
+
+- `config.py` — environment-driven settings and shared constants (session secret resolution, static
+  file paths, AI length/rate-limit constants, `LOGIN_PATH`/`FRONTEND_PUBLIC_PATHS`). See "Auth and
+  session config" below for the security-relevant part.
+- `middleware.py` — `configure_middleware(app)`, wires up `SessionMiddleware` from `config`.
+- `dependencies.py` — `is_authenticated`/`require_authenticated`/`require_session_user_id`, shared
+  across every router that needs auth.
+- `routers/auth.py` — `/api/auth/login`, `/logout`, `/session`.
+- `routers/board.py` — `GET`/`PUT /api/board`, `POST /api/board/reset`.
+- `routers/ai.py` — `/api/ai/connectivity`, `/api/ai/respond`, plus the AI request models and the
+  per-user rate limiter (`_enforce_ai_rate_limit`, `_ai_request_log`).
+- `routers/health.py` — `GET /api/health`.
+- `routers/frontend.py` — `GET /` and the `GET /{full_path:path}` catch-all static-file server.
+
+**Router registration order matters**: `frontend.router` (containing the catch-all) must always be
+included *last* in `main.py`, or it would shadow every `/api/*` route registered after it. Within
+`frontend.py` itself, `/` must stay declared before the catch-all for the same reason.
+
+### Auth and session config
+
 - Auth is a server-side cookie session (`SessionMiddleware`), hardcoded credentials `user`/`password`
   for the MVP. There is no JWT/localStorage-based auth guard — session state is authoritative. Passwords
   are hashed with `bcrypt` (`board_store._hash_password`/`_verify_password`) — never stored or compared
   in plaintext.
+- `SESSION_SECRET`: read from the environment; `config.resolve_session_secret(environment, secret)` only
+  falls back to a hardcoded development secret when `ENVIRONMENT` is `"development"` (the default) — any
+  other `ENVIRONMENT` value with no `SESSION_SECRET` set raises `SessionSecretConfigurationError` at
+  startup rather than silently running with an insecure default.
+- `SESSION_HTTPS_ONLY` (env var, default `false`): cookies aren't HTTPS-only by default because the
+  local/Docker MVP has no TLS termination in front of it; set `SESSION_HTTPS_ONLY=true` behind TLS.
 - Every board/AI route requires an authenticated session and resolves `user_id` from the session, not
   from client-supplied data.
 - The catch-all `GET /{full_path:path}` route serves the exported frontend, redirecting to `/login` for
@@ -84,8 +111,9 @@ read from the project-root `.env` file / environment.
 - No CORS middleware: the frontend is always served same-origin (see the frontend commands above), and
   every frontend fetch call uses a relative path, so no cross-origin request is ever issued.
 - `/api/ai/respond` and `/api/ai/connectivity` are rate-limited per authenticated user (in-memory
-  sliding window, `main._enforce_ai_rate_limit` — see `_AI_RATE_LIMIT_MAX_REQUESTS`/`_WINDOW_SECONDS`).
-  This is process-local, which is fine for the current single-instance local MVP.
+  sliding window, `routers/ai.py`'s `_enforce_ai_rate_limit` — see `_AI_RATE_LIMIT_MAX_REQUESTS`/
+  `_AI_RATE_LIMIT_WINDOW_SECONDS`, sourced from `config.py`). This is process-local, which is fine for
+  the current single-instance local MVP.
 
 ### Board persistence (`backend/app/board_store.py`)
 
@@ -133,8 +161,8 @@ atomic board mutations.
 - `validate_and_apply_operations` applies operations to an in-memory `_BoardState` snapshot
   sequentially, validating each against current state (rejecting unknown/cross-board card or column ids,
   duplicate operation/create ids, out-of-range positions) before it ever reaches the DB, then the whole
-  resulting board is persisted in one transaction (`main.py` wraps `save_board(..., commit=False)` in
-  `session.begin()`). A validation failure anywhere aborts the entire batch — operations are all-or-
+  resulting board is persisted in one transaction (`routers/ai.py` wraps `save_board(..., commit=False)`
+  in `session.begin()`). A validation failure anywhere aborts the entire batch — operations are all-or-
   nothing, never partially applied.
 - Safety contract for referencing nonexistent entities: prefer the model returning `operations: []` (a
   no-op, HTTP 200) rather than fabricating an operation against something that doesn't exist.
@@ -151,7 +179,7 @@ atomic board mutations.
 - `query_openrouter` is a thin synchronous wrapper around one POST to the OpenRouter chat-completions
   endpoint; configuration errors and request/response-shape errors are distinct exception types
   (`OpenRouterConfigurationError` vs `OpenRouterRequestError`) mapped to different HTTP status codes in
-  `main.py` (500 vs 502).
+  `routers/ai.py` (500 vs 502).
 
 ### Frontend (`frontend/src`)
 
@@ -161,7 +189,9 @@ atomic board mutations.
 - Board shape mirrors the backend JSON contract exactly: `columns: Column[]` with ordered `cardIds`,
   plus `cards: Record<string, Card>` keyed by id. `moveCard` in `src/lib/kanban.ts` is the single source
   of truth for reorder/move logic (intra-column reorder, inter-column move, drop-onto-column-append) and
-  is unit-tested independently of the DOM.
+  is unit-tested independently of the DOM. `createId` (also in `kanban.ts`) uses `crypto.randomUUID()`.
+- The login page (`src/app/login/page.tsx`) starts with empty username/password fields — no prefilled
+  credentials.
 - `AiChatSidebar` keeps chat history in memory only for the current page session (no persisted
   transcript) and calls `POST /api/ai/respond` with `{ message, history }`; a returned board triggers an
   immediate reload in `KanbanBoard`.

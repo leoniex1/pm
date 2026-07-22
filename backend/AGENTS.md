@@ -6,7 +6,19 @@ This folder contains the FastAPI backend used for the PM MVP single-container de
 
 ## Part 2 contents
 
-- `app/main.py`: FastAPI application entrypoint.
+- `app/main.py`: thin FastAPI entrypoint — creates the app, configures middleware, calls
+  `init_database()`, includes routers. Does not define any route handlers itself.
+- `app/config.py`: environment-driven settings and shared constants (session secret resolution, static
+  paths, AI length/rate-limit constants). See "Session/auth configuration" below.
+- `app/middleware.py`: `configure_middleware(app)` — session middleware setup.
+- `app/dependencies.py`: shared auth helpers (`is_authenticated`, `require_authenticated`,
+  `require_session_user_id`) used across routers.
+- `app/routers/auth.py`: login/logout/session routes.
+- `app/routers/board.py`: board CRUD + test-only reset route.
+- `app/routers/ai.py`: AI connectivity/respond routes, request models, and the per-user AI rate limiter.
+- `app/routers/health.py`: health check route.
+- `app/routers/frontend.py`: `/` and the `/{full_path:path}` catch-all static-file server. Must be
+  included last in `main.py` — the catch-all would otherwise shadow every other route.
 - `app/board_store.py`: SQLite SQLAlchemy board persistence layer, password hashing, and seed/bootstrap logic.
 - `alembic.ini`, `migrations/`: Alembic schema migrations. See "Schema management" below.
 - `static/`: Build output directory for exported Next.js frontend (copied in Docker build).
@@ -15,6 +27,8 @@ This folder contains the FastAPI backend used for the PM MVP single-container de
 - `tests/test_board.py`: board persistence, referential-integrity validation, and test-only reset security tests.
 - `tests/test_password_security.py`: password hashing/verification tests.
 - `tests/test_schema_migrations.py`: migration adoption/non-destructiveness tests.
+- `tests/test_config.py`: session-secret resolution and boolean-env-parsing tests.
+- `tests/test_app_structure.py`: route registration/ordering and router-separation tests.
 - `tests/conftest.py`: autouse fixture resetting the AI rate-limit state between tests.
 
 ## Data model notes
@@ -64,6 +78,16 @@ This folder contains the FastAPI backend used for the PM MVP single-container de
 - AI connectivity endpoint requires an authenticated session.
 - No CORS middleware is configured: the frontend is always served same-origin (see
   `frontend/AGENTS.md` for the local dev/e2e workflow that keeps this true outside Docker too).
+
+## Session/auth configuration
+
+- `SESSION_SECRET` (env var): `config.resolve_session_secret(environment, secret)` only falls back to a
+  hardcoded development secret when `ENVIRONMENT` is `"development"` (the default, so local/test
+  behavior is unchanged with no env vars set). Any other `ENVIRONMENT` value with no `SESSION_SECRET`
+  raises `SessionSecretConfigurationError` at startup — refuses to run with an insecure default outside
+  development.
+- `SESSION_HTTPS_ONLY` (env var, default `false`): whether the session cookie is HTTPS-only. Defaults to
+  `false` because the local/Docker MVP has no TLS termination; set to `true` behind TLS.
 
 ## OpenRouter config
 

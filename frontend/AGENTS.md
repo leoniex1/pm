@@ -8,6 +8,7 @@ This frontend is a Next.js app (App Router) that currently runs as a client-side
 
 - `src/app/layout.tsx`: Root HTML layout and global metadata/font wiring.
 - `src/app/page.tsx`: Home route; renders `KanbanBoard`.
+- `src/app/login/page.tsx`: Login form. Username/password fields start empty (no prefilled credentials).
 - `src/app/globals.css`: Global styles and color tokens.
 - `src/components/KanbanBoard.tsx`: Main board state container and drag/drop orchestration.
 - `src/components/AiChatSidebar.tsx`: AI chat sidebar UI, local chat history, send/loading/error states.
@@ -15,10 +16,11 @@ This frontend is a Next.js app (App Router) that currently runs as a client-side
 - `src/components/KanbanCard.tsx`: Sortable card UI and delete action.
 - `src/components/KanbanCardPreview.tsx`: Drag overlay preview.
 - `src/components/NewCardForm.tsx`: Inline add-card form with simple validation.
-- `src/lib/kanban.ts`: Board types, seed data, card movement logic, id helper.
+- `src/lib/kanban.ts`: Board types, seed data, card movement logic, id helper (`createId` uses `crypto.randomUUID()`).
 - `src/components/KanbanBoard.test.tsx`: Component-level interaction tests, including failed-save error/revert behavior.
 - `src/components/AiChatSidebar.test.tsx`: Component tests for chat input, pending state, and error rendering.
-- `src/lib/kanban.test.ts`: Unit tests for board movement logic.
+- `src/lib/kanban.test.ts`: Unit tests for board movement logic and id generation.
+- `src/app/login/page.test.tsx`: Confirms the login form has no prefilled credentials.
 - `tests/kanban.spec.ts`: Playwright e2e test entry point.
 - `scripts/full-stack.mjs`, `scripts/e2e.mjs`, `scripts/serve.mjs`: build+serve orchestration for e2e/local full-stack dev (see "Build, run, and test scripts").
 

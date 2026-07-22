@@ -8,8 +8,8 @@ type SessionResponse = {
 };
 
 export default function LoginPage() {
-  const [username, setUsername] = useState("user");
-  const [password, setPassword] = useState("password");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 

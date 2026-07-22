@@ -78,7 +78,7 @@ def test_connectivity_endpoint_returns_mocked_openrouter_response(
         assert prompt == "What is 2 + 2?"
         return OpenRouterReply(model="openai/gpt-oss-120b", text="4")
 
-    monkeypatch.setattr("backend.app.main.query_openrouter", _fake_query_openrouter)
+    monkeypatch.setattr("backend.app.routers.ai.query_openrouter", _fake_query_openrouter)
 
     response = client.post("/api/ai/connectivity", json={"prompt": "What is 2 + 2?"})
     assert response.status_code == 200
@@ -93,7 +93,7 @@ def test_connectivity_endpoint_reports_missing_api_key(
     def _raise_configuration_error(_: str) -> OpenRouterReply:
         raise OpenRouterConfigurationError("OpenRouter API key is not configured")
 
-    monkeypatch.setattr("backend.app.main.query_openrouter", _raise_configuration_error)
+    monkeypatch.setattr("backend.app.routers.ai.query_openrouter", _raise_configuration_error)
 
     response = client.post("/api/ai/connectivity", json={"prompt": "What is 2 + 2?"})
     assert response.status_code == 500
@@ -110,12 +110,12 @@ def test_connectivity_endpoint_is_rate_limited(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _login(client)
-    monkeypatch.setattr("backend.app.main._AI_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr("backend.app.routers.ai._AI_RATE_LIMIT_MAX_REQUESTS", 2)
 
     def _fake_query_openrouter(prompt: str) -> OpenRouterReply:
         return OpenRouterReply(model="openai/gpt-oss-120b", text="4")
 
-    monkeypatch.setattr("backend.app.main.query_openrouter", _fake_query_openrouter)
+    monkeypatch.setattr("backend.app.routers.ai.query_openrouter", _fake_query_openrouter)
 
     first = client.post("/api/ai/connectivity", json={"prompt": "What is 2 + 2?"})
     second = client.post("/api/ai/connectivity", json={"prompt": "What is 2 + 2?"})
