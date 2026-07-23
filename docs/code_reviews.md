@@ -445,3 +445,48 @@ No findings remain open as of 2026-07-22. `backend/app/main.py` was also refacto
 (`config.py`, `middleware.py`, `dependencies.py`, `routers/`) in the same pass — not itself a finding,
 but done because F13's fix and the growing route count made a good moment to separate concerns; see
 "Remediation status" at the top of this document.
+
+---
+
+## Follow-up review (2026-07-23): clean pass, no new findings
+
+**Date:** 2026-07-23
+**Scope:** Full repository re-scan, independent of the diff (the branch had no code changes since the
+2026-07-22 remediation — working tree was clean apart from a stale `test-results/.last-run.json`
+artifact). Goal was to check for anything new or regressed, not to re-litigate F1–F16.
+**Method:** Manual read of every backend (`backend/app/**/*.py`) and frontend
+(`frontend/src/**/*.{ts,tsx}`) application source file — `config.py`, `middleware.py`, `dependencies.py`,
+`board_store.py`, `structured_output.py`, `openrouter_service.py`, `main.py`, all five routers (`auth`,
+`board`, `ai`, `health`, `frontend`), `KanbanBoard.tsx`, `AiChatSidebar.tsx`, `kanban.ts`,
+`login/page.tsx`, and the `Dockerfile` — plus a repo-wide grep for `eval`, `exec`, `subprocess`,
+`os.system`, `pickle`, `yaml.load`, `innerHTML`, `dangerouslySetInnerHTML`, and `shell=True` (zero hits).
+Full test suites were also re-run to confirm no regression: `pytest backend/tests` (80/80), `npm run
+lint` (0 errors), `npm run test:unit` (18/18), `npm run test:e2e` (8/8, full build+serve workflow). No
+application code was modified.
+
+**Result: no HIGH or MEDIUM confidence findings.** Specifically checked and ruled out:
+
+- **Path traversal** (`routers/frontend.py:_resolve_static_file`) — still correctly resolves and
+  containment-checks against `STATIC_DIR` before serving.
+- **SQL injection** — all queries go through the SQLAlchemy ORM with bound parameters; no raw SQL
+  anywhere.
+- **Auth/session integrity** — `password_hash` remains genuine bcrypt; session `user_id` is server-side
+  and cookie-signed, never client-supplied; every board/AI route resolves ownership from the session,
+  not the request payload — no IDOR path found.
+- **AI structured-output injection** — operations remain strictly validated (`extra="forbid"`,
+  length/pattern-bounded fields) against the live board snapshot before any DB write; no eval/
+  deserialization of model output.
+- **XSS** — no `dangerouslySetInnerHTML` anywhere in the frontend; all user- and AI-derived text renders
+  through normal JSX text nodes.
+- **SSRF** — `openrouter_service.py` posts only to a hardcoded OpenRouter URL; no user-controlled
+  host/protocol.
+- **Open redirect** — both redirect call sites in `frontend.py` target fixed constants, never a
+  user-supplied URL.
+- **CORS/CSRF surface** — no CORS middleware (same-origin only); `SameSite=Lax` cookies, unchanged from
+  F9/F13.
+- **Secrets/config handling** — `SESSION_SECRET` still refuses to start in non-development environments
+  without an explicit secret (F13 remediation intact).
+- **Docker/build** — no shell interpolation of untrusted input in the `Dockerfile`.
+
+**Conclusion:** the 2026-07-22 remediation (F1–F16) holds with no regressions; this independent full-repo
+pass found nothing new to add to the findings list above.
