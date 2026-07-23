@@ -137,7 +137,9 @@ Reconciliation note: some Part 6 implementation and tests were completed early d
 - [x] Implement repository/data-access layer for board entities.
 - [x] Implement authenticated board APIs (read and update operations).
 - [x] Add validation for payload shape and ownership checks.
-- [ ] Add error handling for invalid board/card/column operations.
+- [x] Add error handling for invalid board/card/column operations. (Closed by code-review finding F5:
+  `BoardData` model validator in `board_store.py` rejects duplicate/missing/orphaned card and column
+  references with a 422 instead of silent data loss or an unhandled 500 — see `docs/code_reviews.md`.)
 
 ### Tests
 
@@ -159,7 +161,9 @@ Reconciliation note: core Part 7 integration was completed early during Part 5 e
 
 - [x] Replace in-memory-only initialization with backend board fetch.
 - [x] Wire rename/add/delete/move operations to backend APIs.
-- [ ] Add optimistic or controlled update strategy with rollback/error UX.
+- [x] Add optimistic or controlled update strategy with rollback/error UX. (Closed by code-review finding
+  F3: `persistBoard` in `KanbanBoard.tsx` reverts to the prior board state and shows a dismissible error
+  banner on a failed save — see `docs/code_reviews.md`.)
 - [x] Ensure session-aware API calls include credentials.
 - [x] Keep existing UX quality and responsiveness.
 
